@@ -60,8 +60,10 @@ services:
     container_name: quant_tools_nginx
     restart: unless-stopped
     depends_on:
-      - backend
-      - frontend
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
     ports:
       - "80:80"
       - "443:443"
