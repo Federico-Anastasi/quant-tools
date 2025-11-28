@@ -50,7 +50,7 @@ backend/static/
 # Environment
 .env
 .env.local
-.env.production
+frontend/.env.production
 
 # Database
 *.db

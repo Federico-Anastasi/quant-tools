@@ -1,0 +1,30 @@
+# robots.txt for PsiQuant
+# Allow all search engines including AI crawlers
+
+User-agent: *
+Allow: /
+
+# AI Search Engine Crawlers
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: GPTBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: Perplexity
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: cohere-ai
+Allow: /
+
+# Sitemap location
+Sitemap: https://psiquant.xyz/sitemap.xml

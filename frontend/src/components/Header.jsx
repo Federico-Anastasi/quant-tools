@@ -75,23 +75,22 @@ function Header({
 
           {/* Logo & Brand */}
           <div className="flex items-center gap-2 sm:gap-2.5">
-            {/* Logo Icon */}
+            {/* Logo Icon - Psi Symbol */}
             <div className="relative flex items-center justify-center">
-              <div className="w-7 h-7 rounded-md bg-gradient-to-br from-neon-cyan/20 to-emerald-500/20 border border-neon-cyan/30 flex items-center justify-center shadow-md">
-                <svg className="w-4 h-4 text-neon-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                </svg>
-              </div>
-              <div className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-neon-cyan rounded-full animate-pulse shadow-sm shadow-neon-cyan" />
+              <img
+                src="/logo.svg"
+                alt="PsiQuant Logo"
+                className="w-8 h-8 sm:w-9 sm:h-9"
+              />
             </div>
 
             {/* Brand Text */}
             <div className="hidden sm:flex flex-col justify-center">
               <h1 className="text-sm font-bold tracking-tight text-gray-100 leading-none">
-                Quant Tools
+                PsiQuant
               </h1>
               <span className="text-[9px] font-medium text-gray-500 tracking-wider uppercase leading-none mt-0.5">
-                Micro Structure Analytics
+                Order Flow Analytics
               </span>
             </div>
           </div>

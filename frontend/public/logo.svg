@@ -1,0 +1,98 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Tech Psi with Hexagon Border - Straight legs -->
+  <defs>
+    <!-- Glow filter for neon effect -->
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <g filter="url(#glow)">
+    <!-- Hexagon border - same thickness as Psi -->
+    <path d="M 256 30 L 440 140 L 440 330 L 256 440 L 72 330 L 72 140 Z"
+          fill="none"
+          stroke="#0EA5E9"
+          stroke-width="36"
+          stroke-linecap="round"
+          stroke-linejoin="round"/>
+
+    <!-- Inner hexagon for tech effect -->
+    <path d="M 256 42 L 428 147 L 428 323 L 256 428 L 84 323 L 84 147 Z"
+          fill="none"
+          stroke="#0EA5E9"
+          stroke-width="6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          opacity="0.6"/>
+
+    <!-- Left leg of U - STRAIGHT, from top hexagon edge down -->
+    <path d="M 160 100 L 160 260 Q 160 300 256 300"
+          stroke="#0EA5E9"
+          stroke-width="36"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          fill="none"/>
+
+    <!-- Right leg of U - STRAIGHT, from top hexagon edge down -->
+    <path d="M 352 100 L 352 260 Q 352 300 256 300"
+          stroke="#0EA5E9"
+          stroke-width="36"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          fill="none"/>
+
+    <!-- Inner left leg for tech effect -->
+    <path d="M 180 110 L 180 255 Q 180 285 256 285"
+          stroke="#0EA5E9"
+          stroke-width="6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          fill="none"
+          opacity="0.6"/>
+
+    <!-- Inner right leg for tech effect -->
+    <path d="M 332 110 L 332 255 Q 332 285 256 285"
+          stroke="#0EA5E9"
+          stroke-width="6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          fill="none"
+          opacity="0.6"/>
+
+    <!-- Vertical center stem - touches hexagon top and bottom -->
+    <path d="M 256 30 L 256 440"
+          stroke="#0EA5E9"
+          stroke-width="36"
+          stroke-linecap="round"
+          fill="none"/>
+
+    <!-- Inner vertical line -->
+    <path d="M 256 42 L 256 428"
+          stroke="#0EA5E9"
+          stroke-width="6"
+          stroke-linecap="round"
+          fill="none"
+          opacity="0.6"/>
+
+    <!-- Circuit details on Psi -->
+    <circle cx="160" cy="170" r="7" fill="#0EA5E9"/>
+    <circle cx="160" cy="230" r="7" fill="#0EA5E9"/>
+    <circle cx="352" cy="170" r="7" fill="#0EA5E9"/>
+    <circle cx="352" cy="230" r="7" fill="#0EA5E9"/>
+    <circle cx="256" cy="300" r="9" fill="#0EA5E9"/>
+    <circle cx="256" cy="150" r="7" fill="#0EA5E9"/>
+    <circle cx="256" cy="370" r="7" fill="#0EA5E9"/>
+
+    <!-- Circuit nodes at hexagon corners -->
+    <circle cx="256" cy="30" r="9" fill="#0EA5E9"/>
+    <circle cx="440" cy="140" r="9" fill="#0EA5E9"/>
+    <circle cx="440" cy="330" r="9" fill="#0EA5E9"/>
+    <circle cx="256" cy="440" r="9" fill="#0EA5E9"/>
+    <circle cx="72" cy="330" r="9" fill="#0EA5E9"/>
+    <circle cx="72" cy="140" r="9" fill="#0EA5E9"/>
+  </g>
+</svg>
