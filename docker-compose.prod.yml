@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: quant_tools_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: quant_tools
+      POSTGRES_USER: quant_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-quant_password_2024}  # Use env var or default
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/migrations:/docker-entrypoint-initdb.d
+    networks:
+      - quant_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quant_user -d quant_tools"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: quant_tools_backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://quant_user:${POSTGRES_PASSWORD:-quant_password_2024}@db:5432/quant_tools
+      WS_URL: wss://api.hyperliquid.xyz/ws
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+    networks:
+      - quant_network
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # React Frontend (Production Build)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ""  # Empty for same-origin requests via Nginx
+    container_name: quant_tools_frontend
+    restart: unless-stopped
+    networks:
+      - quant_network
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: quant_tools_nginx
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - frontend
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro  # SSL certificates from Certbot
+      - /var/www/certbot:/var/www/certbot:ro  # ACME challenge for renewal
+    networks:
+      - quant_network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  quant_network:
+    name: quant_network
+
+volumes:
+  postgres_data:
+    name: quant_tools_postgres_data
