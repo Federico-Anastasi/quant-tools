@@ -77,14 +77,24 @@ echo "🔀 Import SOLO dati NON presenti in produzione..."
 
 # Import con filtro timestamp < MIN produzione
 docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME <<EOF
--- Candele PRIMA del primo timestamp produzione
-INSERT INTO cvd_candles
-SELECT * FROM temp_candles
+-- Candele PRIMA del primo timestamp produzione (senza id per evitare conflitti)
+INSERT INTO cvd_candles (timestamp, symbol, price_open, price_high, price_low, price_close,
+                          cvd_open, cvd_high, cvd_low, cvd_close, volume_buy, volume_sell,
+                          efficiency_ratio, signal, signal_quality, cumulative_v1, cumulative_v2,
+                          cumulative_v3, cumulative_v3_ema, finalized, created_at, updated_at)
+SELECT timestamp, symbol, price_open, price_high, price_low, price_close,
+       cvd_open, cvd_high, cvd_low, cvd_close, volume_buy, volume_sell,
+       efficiency_ratio, signal, signal_quality, cumulative_v1, cumulative_v2,
+       cumulative_v3, cumulative_v3_ema, finalized, created_at, updated_at
+FROM temp_candles
 WHERE timestamp < '$MIN_PROD'::timestamptz;
 
--- Runs PRIMA del primo timestamp produzione
-INSERT INTO runs
-SELECT * FROM temp_runs
+-- Runs PRIMA del primo timestamp produzione (senza id)
+INSERT INTO runs (symbol, t_start, t_end, price_start, price_end, price_mid, dir,
+                  delta_p, Q, q, V_eff, velocity, duration, n_ticks, created_at)
+SELECT symbol, t_start, t_end, price_start, price_end, price_mid, dir,
+       delta_p, Q, q, V_eff, velocity, duration, n_ticks, created_at
+FROM temp_runs
 WHERE t_start < '$MIN_RUNS_PROD'::timestamptz;
 
 -- Report
