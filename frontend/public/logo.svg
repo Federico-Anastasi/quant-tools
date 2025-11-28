@@ -1,17 +1,6 @@
 <svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Tech Psi with Hexagon Border - Straight legs -->
-  <defs>
-    <!-- Glow filter for neon effect -->
-    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="8" result="coloredBlur"/>
-      <feMerge>
-        <feMergeNode in="coloredBlur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-  </defs>
-
-  <g filter="url(#glow)">
+  <!-- Tech Psi with Hexagon Border - Straight legs - No glow -->
+  <g>
     <!-- Hexagon border - same thickness as Psi -->
     <path d="M 256 30 L 440 140 L 440 330 L 256 440 L 72 330 L 72 140 Z"
           fill="none"
