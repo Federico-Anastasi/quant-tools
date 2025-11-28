@@ -60,8 +60,8 @@ echo "🔄 Creazione tabelle temporanee..."
 docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME <<'EOF'
 DROP TABLE IF EXISTS temp_candles;
 DROP TABLE IF EXISTS temp_runs;
-CREATE TABLE temp_candles (LIKE cvd_candles);
-CREATE TABLE temp_runs (LIKE runs);
+CREATE TABLE temp_candles (LIKE cvd_candles INCLUDING DEFAULTS EXCLUDING CONSTRAINTS EXCLUDING INDEXES);
+CREATE TABLE temp_runs (LIKE runs INCLUDING DEFAULTS EXCLUDING CONSTRAINTS EXCLUDING INDEXES);
 EOF
 
 echo "✓ Temp tables create"
