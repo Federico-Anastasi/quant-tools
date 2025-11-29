@@ -10,23 +10,11 @@ import psycopg2
 
 # Database connection - read from environment like backend does
 # The backend sets DATABASE_URL with the real password
-import urllib.parse
-
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 if not DATABASE_URL:
     # Fallback for local development
     DATABASE_URL = "postgresql://quant_user:quant_password_2024@quant_tools_db:5432/quant_tools"
-
-# Parse URL to handle special characters in password
-parsed = urllib.parse.urlparse(DATABASE_URL)
-DB_CONFIG = {
-    'host': parsed.hostname,
-    'port': parsed.port or 5432,
-    'database': parsed.path.lstrip('/'),
-    'user': parsed.username,
-    'password': urllib.parse.unquote(parsed.password) if parsed.password else None
-}
 
 # Timestamp di giunzione tra storico e production
 JUNCTION_TIMESTAMP = '2025-11-28 18:54:00+00'
@@ -183,7 +171,7 @@ def main():
 
     print("📡 Connessione al database...")
     try:
-        conn = psycopg2.connect(**DB_CONFIG)
+        conn = psycopg2.connect(DATABASE_URL)
     except Exception as e:
         print(f"❌ Errore: {e}")
         sys.exit(1)
