@@ -6,34 +6,35 @@ Shifta i valori delle candele production di un offset pari agli ultimi valori st
 
 import os
 import sys
-import psycopg2
+from sqlalchemy import create_engine, text
 
-# Database connection - read from environment like backend does
-# The backend sets DATABASE_URL with the real password
+# Database connection - use SQLAlchemy like backend does
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 if not DATABASE_URL:
     # Fallback for local development
     DATABASE_URL = "postgresql://quant_user:quant_password_2024@quant_tools_db:5432/quant_tools"
 
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+
 # Timestamp di giunzione tra storico e production
 JUNCTION_TIMESTAMP = '2025-11-28 18:54:00+00'
 
-def reconnect_data(conn):
+def reconnect_data():
     """Raccorda dati production con storico"""
 
-    with conn.cursor() as cur:
+    with engine.connect() as conn:
         # Step 1: Trova l'ultima candela storica (prima della giunzione)
         print("📊 Recupero ultima candela storica...")
-        cur.execute("""
+        result = conn.execute(text("""
             SELECT cvd_close, cumulative_v1, cumulative_v2, cumulative_v3_ema
             FROM cvd_candles
-            WHERE timestamp < %s
+            WHERE timestamp < :junction
             ORDER BY timestamp DESC
             LIMIT 1
-        """, (JUNCTION_TIMESTAMP,))
+        """), {"junction": JUNCTION_TIMESTAMP})
 
-        last_historical = cur.fetchone()
+        last_historical = result.fetchone()
 
         if not last_historical:
             print("❌ Nessuna candela storica trovata")
@@ -53,17 +54,17 @@ def reconnect_data(conn):
 
         # Step 2: Leggi tutte le candele production (dalla giunzione in poi)
         print("📥 Caricamento candele production...")
-        cur.execute("""
+        result = conn.execute(text("""
             SELECT id, timestamp,
                    cvd_open, cvd_high, cvd_low, cvd_close,
                    cumulative_v1, cumulative_v2, cumulative_v3, cumulative_v3_ema,
                    signal, efficiency_ratio, volume_buy, volume_sell
             FROM cvd_candles
-            WHERE timestamp >= %s
+            WHERE timestamp >= :junction
             ORDER BY timestamp ASC
-        """, (JUNCTION_TIMESTAMP,))
+        """), {"junction": JUNCTION_TIMESTAMP})
 
-        production_candles = cur.fetchall()
+        production_candles = result.fetchall()
         print(f"✓ Trovate {len(production_candles)} candele production da raccordare")
         print()
 
@@ -80,7 +81,6 @@ def reconnect_data(conn):
         cumulative_v3_ema = offset_v3_ema
         cvd_cumulative = offset_cvd
 
-        updates = []
         DECAY = 0.95
         EMA_ALPHA = 2.0 / 15.0  # period=14, alpha=2/(14+1)
 
@@ -115,47 +115,44 @@ def reconnect_data(conn):
             # Cumulative V3: momentum (V1 - EMA)
             cumulative_v3 = cumulative_v1 - cumulative_v3_ema
 
-            updates.append((
-                round(cvd_open_new, 2),
-                round(cvd_high_new, 2),
-                round(cvd_low_new, 2),
-                round(cvd_close_new, 2),
-                round(cumulative_v1, 2),
-                round(cumulative_v2, 2),
-                round(cumulative_v3, 2),
-                round(cumulative_v3_ema, 2),
-                candle_id
-            ))
-
-        # Step 4: Update in batch
-        print("💾 Aggiornamento database...")
-        cur.executemany("""
-            UPDATE cvd_candles
-            SET cvd_open = %s,
-                cvd_high = %s,
-                cvd_low = %s,
-                cvd_close = %s,
-                cumulative_v1 = %s,
-                cumulative_v2 = %s,
-                cumulative_v3 = %s,
-                cumulative_v3_ema = %s
-            WHERE id = %s
-        """, updates)
+            # Update singola candela
+            conn.execute(text("""
+                UPDATE cvd_candles
+                SET cvd_open = :cvd_open,
+                    cvd_high = :cvd_high,
+                    cvd_low = :cvd_low,
+                    cvd_close = :cvd_close,
+                    cumulative_v1 = :cumulative_v1,
+                    cumulative_v2 = :cumulative_v2,
+                    cumulative_v3 = :cumulative_v3,
+                    cumulative_v3_ema = :cumulative_v3_ema
+                WHERE id = :id
+            """), {
+                "cvd_open": round(cvd_open_new, 2),
+                "cvd_high": round(cvd_high_new, 2),
+                "cvd_low": round(cvd_low_new, 2),
+                "cvd_close": round(cvd_close_new, 2),
+                "cumulative_v1": round(cumulative_v1, 2),
+                "cumulative_v2": round(cumulative_v2, 2),
+                "cumulative_v3": round(cumulative_v3, 2),
+                "cumulative_v3_ema": round(cumulative_v3_ema, 2),
+                "id": candle_id
+            })
 
         conn.commit()
-        print(f"✅ Aggiornate {len(updates)} candele production")
+        print(f"✅ Aggiornate {len(production_candles)} candele production")
         print()
 
         # Step 5: Verifica finale
-        cur.execute("""
+        result = conn.execute(text("""
             SELECT
                 MIN(cvd_close) as min_cvd, MAX(cvd_close) as max_cvd,
                 MIN(cumulative_v1) as min_v1, MAX(cumulative_v1) as max_v1,
                 MIN(cumulative_v2) as min_v2, MAX(cumulative_v2) as max_v2,
                 MIN(cumulative_v3) as min_v3, MAX(cumulative_v3) as max_v3
             FROM cvd_candles
-        """)
-        stats = cur.fetchone()
+        """))
+        stats = result.fetchone()
         print(f"📈 Range finali (storico + production):")
         print(f"  CVD: {stats[0]:.2f} → {stats[1]:.2f}")
         print(f"  V1: {stats[2]:.2f} → {stats[3]:.2f}")
@@ -171,12 +168,13 @@ def main():
 
     print("📡 Connessione al database...")
     try:
-        conn = psycopg2.connect(DATABASE_URL)
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        print(f"✓ Connesso")
     except Exception as e:
         print(f"❌ Errore: {e}")
         sys.exit(1)
 
-    print(f"✓ Connesso")
     print()
     print(f"⚠️  Timestamp di giunzione: {JUNCTION_TIMESTAMP}")
     print(f"   - Candele PRIMA: lasciate intatte (storico corretto)")
@@ -188,8 +186,7 @@ def main():
         print("Annullato.")
         return
 
-    reconnect_data(conn)
-    conn.close()
+    reconnect_data()
 
     print()
     print("✅ RACCORDO COMPLETATO!")
