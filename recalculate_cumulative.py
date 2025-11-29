@@ -8,7 +8,7 @@ import os
 import sys
 import psycopg2
 
-DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://quant_user:quant_password_2024@localhost:5432/quant_tools')
+DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://quant_user:quant_password_2024@quant_tools_db:5432/quant_tools')
 
 # Timestamp di giunzione tra storico e production
 JUNCTION_TIMESTAMP = '2025-11-28 18:54:00+00'
