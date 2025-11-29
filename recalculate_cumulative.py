@@ -8,13 +8,24 @@ import os
 import sys
 import psycopg2
 
-# Database connection - use individual vars to avoid URL encoding issues
+# Database connection - read from environment like backend does
+# The backend sets DATABASE_URL with the real password
+import urllib.parse
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not DATABASE_URL:
+    # Fallback for local development
+    DATABASE_URL = "postgresql://quant_user:quant_password_2024@quant_tools_db:5432/quant_tools"
+
+# Parse URL to handle special characters in password
+parsed = urllib.parse.urlparse(DATABASE_URL)
 DB_CONFIG = {
-    'host': os.getenv('POSTGRES_HOST', 'quant_tools_db'),
-    'port': int(os.getenv('POSTGRES_PORT', '5432')),
-    'database': os.getenv('POSTGRES_DB', 'quant_tools'),
-    'user': os.getenv('POSTGRES_USER', 'quant_user'),
-    'password': os.getenv('POSTGRES_PASSWORD', 'quant_password_2024')
+    'host': parsed.hostname,
+    'port': parsed.port or 5432,
+    'database': parsed.path.lstrip('/'),
+    'user': parsed.username,
+    'password': urllib.parse.unquote(parsed.password) if parsed.password else None
 }
 
 # Timestamp di giunzione tra storico e production
