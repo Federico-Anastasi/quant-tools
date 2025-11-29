@@ -4,20 +4,28 @@ Import historical data from SQL dump with timestamp filtering.
 Avoids duplicates by filtering records before MIN(production timestamp).
 """
 
+import os
 import re
 import sys
 from datetime import datetime
 import psycopg2
 from psycopg2.extras import execute_values
 
-# Database connection
-DB_CONFIG = {
-    'host': 'localhost',
-    'port': 5432,
-    'database': 'quant_tools',
-    'user': 'quant_user',
-    'password': 'quant_password'  # Change this!
-}
+# Database connection - use DATABASE_URL if available, else individual vars
+DATABASE_URL = os.getenv('DATABASE_URL')
+
+if DATABASE_URL:
+    # Use connection string directly
+    DB_CONFIG = DATABASE_URL
+else:
+    # Fallback to individual environment variables
+    DB_CONFIG = {
+        'host': os.getenv('POSTGRES_HOST', 'localhost'),
+        'port': int(os.getenv('POSTGRES_PORT', '5432')),
+        'database': os.getenv('POSTGRES_DB', 'quant_tools'),
+        'user': os.getenv('POSTGRES_USER', 'quant_user'),
+        'password': os.getenv('POSTGRES_PASSWORD', 'quant_password_2024')
+    }
 
 def get_min_timestamps(conn):
     """Get minimum timestamps from production database."""
@@ -177,6 +185,17 @@ def import_runs(conn, dump_file, min_timestamp):
 def main():
     if len(sys.argv) < 2:
         print("Usage: python import_data.py <dump_file.sql>")
+        print()
+        print("Environment variables (option 1 - recommended):")
+        print("  DATABASE_URL - Full connection string")
+        print("    Example: postgresql://user:pass@host:port/dbname")
+        print()
+        print("Or individual variables (option 2):")
+        print("  POSTGRES_PASSWORD - Database password")
+        print("  POSTGRES_HOST - Database host (default: localhost)")
+        print("  POSTGRES_PORT - Database port (default: 5432)")
+        print("  POSTGRES_DB - Database name (default: quant_tools)")
+        print("  POSTGRES_USER - Database user (default: quant_user)")
         sys.exit(1)
 
     dump_file = sys.argv[1]
@@ -188,7 +207,11 @@ def main():
 
     # Connect
     print("📡 Connessione al database...")
-    conn = psycopg2.connect(**DB_CONFIG)
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+    except psycopg2.Error as e:
+        print(f"❌ Errore connessione: {e}")
+        sys.exit(1)
 
     # Get min timestamps
     print("🔍 Recupero timestamp minimo produzione...")
