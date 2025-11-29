@@ -8,7 +8,14 @@ import os
 import sys
 import psycopg2
 
-DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://quant_user:quant_password_2024@quant_tools_db:5432/quant_tools')
+# Database connection - use individual vars to avoid URL encoding issues
+DB_CONFIG = {
+    'host': os.getenv('POSTGRES_HOST', 'quant_tools_db'),
+    'port': int(os.getenv('POSTGRES_PORT', '5432')),
+    'database': os.getenv('POSTGRES_DB', 'quant_tools'),
+    'user': os.getenv('POSTGRES_USER', 'quant_user'),
+    'password': os.getenv('POSTGRES_PASSWORD', 'quant_password_2024')
+}
 
 # Timestamp di giunzione tra storico e production
 JUNCTION_TIMESTAMP = '2025-11-28 18:54:00+00'
@@ -165,7 +172,7 @@ def main():
 
     print("📡 Connessione al database...")
     try:
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = psycopg2.connect(**DB_CONFIG)
     except Exception as e:
         print(f"❌ Errore: {e}")
         sys.exit(1)
