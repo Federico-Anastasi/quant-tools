@@ -68,3 +68,6 @@ logs/
 backtest/
 *.tmp
 *.bak
+
+# Documentation (private)
+CLAUDE.md

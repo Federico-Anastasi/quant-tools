@@ -148,6 +148,161 @@ class ZoneSnapshot(Base):
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
 
+class Bot(Base):
+    """Bot configuration and performance metrics"""
+    __tablename__ = "bots"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), nullable=False, unique=True)
+    strategy_type = Column(String(50), nullable=False)
+    status = Column(String(20), nullable=False)
+
+    # Capital tracking
+    starting_capital = Column(DECIMAL(15, 2), nullable=False, default=10000.00)
+    current_balance = Column(DECIMAL(15, 2), nullable=False, default=10000.00)
+    current_equity = Column(DECIMAL(15, 2), nullable=False, default=10000.00)
+
+    # Performance metrics
+    total_pnl = Column(DECIMAL(15, 2), nullable=False, default=0.00)
+    total_pnl_pct = Column(DECIMAL(10, 4), nullable=False, default=0.00)
+    win_rate = Column(DECIMAL(5, 2))
+    total_trades = Column(Integer, nullable=False, default=0)
+    winning_trades = Column(Integer, nullable=False, default=0)
+    losing_trades = Column(Integer, nullable=False, default=0)
+    max_drawdown = Column(DECIMAL(10, 4))
+    sharpe_ratio = Column(DECIMAL(10, 4))
+
+    # Leverage and fee configuration
+    leverage = Column(DECIMAL(5, 2), nullable=False, default=10.00)
+    trading_fee_pct = Column(DECIMAL(5, 4), nullable=False, default=0.04)
+
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "strategy_type": self.strategy_type,
+            "status": self.status,
+            "starting_capital": float(self.starting_capital),
+            "current_balance": float(self.current_balance),
+            "current_equity": float(self.current_equity),
+            "total_pnl": float(self.total_pnl),
+            "total_pnl_pct": float(self.total_pnl_pct),
+            "win_rate": float(self.win_rate) if self.win_rate else None,
+            "total_trades": self.total_trades,
+            "winning_trades": self.winning_trades,
+            "losing_trades": self.losing_trades,
+            "max_drawdown": float(self.max_drawdown) if self.max_drawdown else None,
+            "sharpe_ratio": float(self.sharpe_ratio) if self.sharpe_ratio else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+class BotTrade(Base):
+    """Bot trade execution history"""
+    __tablename__ = "bot_trades"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    bot_id = Column(Integer, nullable=False)
+    symbol = Column(String(20), nullable=False, default="BTC")
+
+    # Entry details
+    entry_timestamp = Column(DateTime(timezone=True), nullable=False)
+    entry_price = Column(DECIMAL(15, 2), nullable=False)
+    entry_signal_v2 = Column(DECIMAL(15, 8))
+    entry_signal_v3 = Column(DECIMAL(15, 8))
+    direction = Column(String(10), nullable=False)
+    position_size = Column(DECIMAL(15, 8), nullable=False)
+    capital_allocated = Column(DECIMAL(15, 2), nullable=False)
+
+    # Exit configuration
+    tp_pct = Column(DECIMAL(10, 4), nullable=False)
+    sl_pct = Column(DECIMAL(10, 4), nullable=False)
+    max_candles = Column(Integer, nullable=False)
+    tp_price = Column(DECIMAL(15, 2), nullable=False)
+    sl_price = Column(DECIMAL(15, 2), nullable=False)
+
+    # Exit details
+    exit_timestamp = Column(DateTime(timezone=True))
+    exit_price = Column(DECIMAL(15, 2))
+    exit_type = Column(String(10))
+    candles_held = Column(Integer)
+
+    # Results
+    pnl = Column(DECIMAL(15, 2))
+    pnl_pct = Column(DECIMAL(10, 4))
+    status = Column(String(20), nullable=False, default='open')
+
+    # Leverage and fees
+    leverage = Column(DECIMAL(5, 2))
+    entry_fee = Column(DECIMAL(15, 6))
+    exit_fee = Column(DECIMAL(15, 6))
+    total_fees = Column(DECIMAL(15, 6))
+
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "bot_id": self.bot_id,
+            "symbol": self.symbol,
+            "entry_timestamp": self.entry_timestamp.isoformat() if self.entry_timestamp else None,
+            "entry_price": float(self.entry_price),
+            "entry_signal_v2": float(self.entry_signal_v2) if self.entry_signal_v2 else None,
+            "entry_signal_v3": float(self.entry_signal_v3) if self.entry_signal_v3 else None,
+            "direction": self.direction,
+            "position_size": float(self.position_size),
+            "capital_allocated": float(self.capital_allocated),
+            "tp_pct": float(self.tp_pct),
+            "sl_pct": float(self.sl_pct),
+            "max_candles": self.max_candles,
+            "tp_price": float(self.tp_price),
+            "sl_price": float(self.sl_price),
+            "exit_timestamp": self.exit_timestamp.isoformat() if self.exit_timestamp else None,
+            "exit_price": float(self.exit_price) if self.exit_price else None,
+            "exit_type": self.exit_type,
+            "candles_held": self.candles_held,
+            "pnl": float(self.pnl) if self.pnl else None,
+            "pnl_pct": float(self.pnl_pct) if self.pnl_pct else None,
+            "status": self.status,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+class BotEquitySnapshot(Base):
+    """Bot equity curve snapshots"""
+    __tablename__ = "bot_equity_snapshots"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    bot_id = Column(Integer, nullable=False)
+    timestamp = Column(DateTime(timezone=True), nullable=False)
+
+    # Equity components
+    balance = Column(DECIMAL(15, 2), nullable=False)
+    equity = Column(DECIMAL(15, 2), nullable=False)
+    unrealized_pnl = Column(DECIMAL(15, 2), nullable=False, default=0.00)
+    open_positions = Column(Integer, nullable=False, default=0)
+
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "bot_id": self.bot_id,
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "balance": float(self.balance),
+            "equity": float(self.equity),
+            "unrealized_pnl": float(self.unrealized_pnl),
+            "open_positions": self.open_positions,
+            "created_at": self.created_at.isoformat() if self.created_at else None
+        }
+
+
 # ============================================================================
 # DATABASE SERVICE
 # ============================================================================
@@ -352,6 +507,191 @@ class DatabaseService:
                 }
 
             return result
+
+    # ========================================================================
+    # BOT MANAGEMENT METHODS
+    # ========================================================================
+
+    @staticmethod
+    def get_all_bots() -> List[Dict]:
+        """Get all bots with their current metrics"""
+        with DatabaseService.get_session() as session:
+            bots = session.query(Bot).all()
+            return [bot.to_dict() for bot in bots]
+
+    @staticmethod
+    def get_active_bots() -> List[Dict]:
+        """Get all active bots"""
+        with DatabaseService.get_session() as session:
+            bots = session.query(Bot).filter(Bot.status == 'active').all()
+            return [bot.to_dict() for bot in bots]
+
+    @staticmethod
+    def get_bot_by_id(bot_id: int) -> Optional[Dict]:
+        """Get single bot by ID"""
+        with DatabaseService.get_session() as session:
+            bot = session.query(Bot).filter(Bot.id == bot_id).first()
+            return bot.to_dict() if bot else None
+
+    @staticmethod
+    def update_bot_status(bot_id: int, status: str) -> bool:
+        """Update bot status (active, paused, stopped)"""
+        with DatabaseService.get_session() as session:
+            bot = session.query(Bot).filter(Bot.id == bot_id).first()
+            if not bot:
+                return False
+            bot.status = status
+            bot.updated_at = datetime.utcnow()
+            return True
+
+    @staticmethod
+    def update_bot_metrics(bot_id: int, metrics: Dict) -> bool:
+        """Update bot performance metrics"""
+        with DatabaseService.get_session() as session:
+            bot = session.query(Bot).filter(Bot.id == bot_id).first()
+            if not bot:
+                return False
+
+            # Update allowed fields
+            allowed_fields = [
+                'current_balance', 'current_equity', 'total_pnl', 'total_pnl_pct',
+                'win_rate', 'total_trades', 'winning_trades', 'losing_trades',
+                'max_drawdown', 'sharpe_ratio'
+            ]
+            for field in allowed_fields:
+                if field in metrics:
+                    setattr(bot, field, metrics[field])
+
+            bot.updated_at = datetime.utcnow()
+            return True
+
+    # ========================================================================
+    # BOT TRADE METHODS
+    # ========================================================================
+
+    @staticmethod
+    def create_trade(trade_data: Dict) -> int:
+        """Create new bot trade and return trade ID"""
+        with DatabaseService.get_session() as session:
+            trade = BotTrade(**trade_data)
+            session.add(trade)
+            session.flush()
+            return trade.id
+
+    @staticmethod
+    def get_open_trades(bot_id: int) -> List[Dict]:
+        """Get all open trades for a bot"""
+        with DatabaseService.get_session() as session:
+            trades = session.query(BotTrade).filter(
+                BotTrade.bot_id == bot_id,
+                BotTrade.status == 'open'
+            ).all()
+            return [trade.to_dict() for trade in trades]
+
+    @staticmethod
+    def get_bot_trades(bot_id: int, status: Optional[str] = None, limit: int = 50) -> List[Dict]:
+        """Get bot trades with optional status filter"""
+        with DatabaseService.get_session() as session:
+            query = session.query(BotTrade).filter(BotTrade.bot_id == bot_id)
+
+            if status:
+                query = query.filter(BotTrade.status == status)
+
+            trades = query.order_by(BotTrade.entry_timestamp.desc()).limit(limit).all()
+            return [trade.to_dict() for trade in trades]
+
+    @staticmethod
+    def update_trade(trade_id: int, updates: Dict) -> bool:
+        """Update trade (typically for exit)"""
+        with DatabaseService.get_session() as session:
+            trade = session.query(BotTrade).filter(BotTrade.id == trade_id).first()
+            if not trade:
+                return False
+
+            for key, value in updates.items():
+                setattr(trade, key, value)
+
+            trade.updated_at = datetime.utcnow()
+            return True
+
+    # ========================================================================
+    # BOT EQUITY SNAPSHOT METHODS
+    # ========================================================================
+
+    @staticmethod
+    def snapshot_equity(bot_id: int, equity_data: Dict) -> int:
+        """Create equity snapshot and return snapshot ID"""
+        with DatabaseService.get_session() as session:
+            snapshot = BotEquitySnapshot(
+                bot_id=bot_id,
+                timestamp=equity_data['timestamp'],
+                balance=equity_data['balance'],
+                equity=equity_data['equity'],
+                unrealized_pnl=equity_data.get('unrealized_pnl', 0.00),
+                open_positions=equity_data.get('open_positions', 0)
+            )
+            session.add(snapshot)
+            session.flush()
+            return snapshot.id
+
+    @staticmethod
+    def get_bot_equity(bot_id: int, from_time: Optional[datetime] = None,
+                      to_time: Optional[datetime] = None, limit: int = 1000) -> List[Dict]:
+        """Get bot equity curve data with optional time range"""
+        with DatabaseService.get_session() as session:
+            query = session.query(BotEquitySnapshot).filter(
+                BotEquitySnapshot.bot_id == bot_id
+            )
+
+            if from_time:
+                query = query.filter(BotEquitySnapshot.timestamp >= from_time)
+            if to_time:
+                query = query.filter(BotEquitySnapshot.timestamp <= to_time)
+
+            snapshots = query.order_by(BotEquitySnapshot.timestamp.asc()).limit(limit).all()
+            return [snapshot.to_dict() for snapshot in snapshots]
+
+    @staticmethod
+    def get_latest_equity_snapshot(bot_id: int) -> Optional[Dict]:
+        """Get the most recent equity snapshot for a bot (includes unrealized P&L with fees)"""
+        with DatabaseService.get_session() as session:
+            snapshot = session.query(BotEquitySnapshot).filter(
+                BotEquitySnapshot.bot_id == bot_id
+            ).order_by(BotEquitySnapshot.timestamp.desc()).first()
+
+            return snapshot.to_dict() if snapshot else None
+
+    @staticmethod
+    def get_open_trade(bot_id: int) -> Optional[Dict]:
+        """Get the current open trade for a bot (for real-time equity calculation)"""
+        with DatabaseService.get_session() as session:
+            trade = session.query(BotTrade).filter(
+                BotTrade.bot_id == bot_id,
+                BotTrade.status == 'open'
+            ).first()
+
+            return trade.to_dict() if trade else None
+
+    @staticmethod
+    def get_total_fees_paid(bot_id: int) -> float:
+        """Get total fees paid by a bot (all closed trades + entry fee from open trade)"""
+        with DatabaseService.get_session() as session:
+            # Sum total_fees from all closed trades
+            from sqlalchemy import func
+            closed_fees = session.query(func.sum(BotTrade.total_fees)).filter(
+                BotTrade.bot_id == bot_id,
+                BotTrade.status == 'closed'
+            ).scalar() or 0.0
+
+            # Add entry fee from open trade (if any)
+            open_trade = session.query(BotTrade).filter(
+                BotTrade.bot_id == bot_id,
+                BotTrade.status == 'open'
+            ).first()
+
+            open_entry_fee = float(open_trade.entry_fee) if open_trade and open_trade.entry_fee else 0.0
+
+            return float(closed_fees) + open_entry_fee
 
 
 def check_db_health() -> bool:

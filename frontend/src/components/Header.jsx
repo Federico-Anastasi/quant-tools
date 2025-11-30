@@ -10,6 +10,7 @@ import React from 'react';
  * @param {function} props.onTabChange - Callback for tab change (tab) => void
  * @param {function} props.onMenuToggle - Callback for mobile menu toggle
  * @param {boolean} props.sidebarOpen - Sidebar open state
+ * @param {function} props.onAboutClick - Callback for About modal
  */
 function Header({
   status = 'connected',
@@ -17,7 +18,8 @@ function Header({
   activeTab = 'cvd',
   onTabChange = () => {},
   onMenuToggle = () => {},
-  sidebarOpen = false
+  sidebarOpen = false,
+  onAboutClick = () => {}
 }) {
   // Status configuration with premium visuals
   const statusConfig = {
@@ -101,7 +103,7 @@ function Header({
           {/* Market Badge */}
           <div className="flex items-center gap-1.5 sm:gap-2 bg-void-700/40 border border-void-600/50 rounded-md px-2 sm:px-2.5 py-1">
             <div className="w-1 h-1 rounded-full bg-neon-cyan animate-pulse shadow-sm shadow-neon-cyan" />
-            <span className="text-[10px] sm:text-[11px] font-bold text-gray-200 tracking-wide">BTC-PERP</span>
+            <span className="text-[10px] sm:text-[11px] font-bold text-gray-200 tracking-wide">LIVE BTC-PERP</span>
             <span className="hidden sm:inline text-[9px] font-medium text-gray-500">Hyperliquid</span>
           </div>
 
@@ -147,27 +149,64 @@ function Header({
                 <span className="hidden md:inline">Liquidity Density</span>
               </span>
             </button>
+
+            <button
+              onClick={() => onTabChange('bots')}
+              className={`
+                relative px-2 sm:px-3 py-1 rounded text-[11px] font-bold tracking-wide transition-all duration-200
+                ${activeTab === 'bots'
+                  ? 'bg-gradient-to-br from-purple-500/20 to-purple-500/10 text-purple-400 shadow-md shadow-purple-500/10 border border-purple-500/30'
+                  : 'text-gray-400 hover:text-gray-300 hover:bg-void-600/40'
+                }
+              `}
+              title="Trading Bots"
+            >
+              <span className="flex items-center gap-1.5">
+                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
+                  <path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
+                </svg>
+                <span className="hidden md:inline">Bots</span>
+              </span>
+            </button>
           </div>
         </div>
 
-        {/* Right Section - Status + Screenshot */}
+        {/* Right Section - Buttons */}
         <div className="flex items-center gap-1.5 sm:gap-3">
 
-          {/* Status Indicator */}
-          <div className={`
-            flex items-center gap-1.5 sm:gap-2 px-2 sm:px-2.5 py-1 rounded-md border
-            ${config.bgColor} ${config.borderColor}
-          `}>
-            <div className="relative flex items-center justify-center">
-              <div className={`w-1.5 h-1.5 rounded-full ${config.dotColor} ${config.animate ? 'animate-pulse' : ''}`} />
-              {config.animate && (
-                <div className={`absolute w-2.5 h-2.5 rounded-full ${config.dotColor} opacity-20 animate-ping`} />
-              )}
-            </div>
-            <span className={`hidden sm:inline text-[11px] font-bold tracking-wide ${config.textColor}`}>
-              {config.text}
-            </span>
-          </div>
+          {/* About Button */}
+          <button
+            onClick={onAboutClick}
+            className="
+              group relative overflow-hidden
+              bg-void-700 hover:bg-void-600
+              border border-void-600/50 hover:border-amber-400/30
+              text-gray-300 hover:text-amber-400
+              px-2 sm:px-3 py-1 rounded-md
+              text-[11px] font-bold tracking-wide
+              transition-all duration-200
+              shadow-md hover:shadow-lg hover:shadow-amber-400/5
+              flex items-center gap-1.5
+            "
+            title="About PsiQuant"
+          >
+            <div className="absolute inset-0 bg-gradient-to-r from-amber-400/0 via-amber-400/5 to-amber-400/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-500" />
+            <svg
+              className="w-3.5 h-3.5 relative z-10"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            <span className="hidden md:inline relative z-10">About</span>
+          </button>
 
           {/* Screenshot Button - Icon only on mobile */}
           <button

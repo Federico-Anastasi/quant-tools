@@ -38,7 +38,7 @@ def apply_triple_barrier(df: pd.DataFrame, entry_idx: int,
 
     if direction == 'LONG':
         tp_price = entry_price * (1 + tp_pct / 100)
-        sl_price = entry_price * (1 + sl_pct / 100)
+        sl_price = entry_price * (1 - abs(sl_pct) / 100)
 
         for j in range(entry_idx + 1, max_idx + 1):
             price = df.iloc[j]['price_close']
@@ -69,7 +69,7 @@ def apply_triple_barrier(df: pd.DataFrame, entry_idx: int,
 
     else:  # SHORT
         tp_price = entry_price * (1 - tp_pct / 100)
-        sl_price = entry_price * (1 - sl_pct / 100)
+        sl_price = entry_price * (1 + abs(sl_pct) / 100)
 
         for j in range(entry_idx + 1, max_idx + 1):
             price = df.iloc[j]['price_close']

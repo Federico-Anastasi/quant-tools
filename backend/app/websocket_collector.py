@@ -42,7 +42,7 @@ async def on_message(msg: str):
         if batch:
             trades_buffer.extend(batch)
             last_trade_time = datetime.utcnow()
-            print(f"[WS] Buffered {len(batch)} trades (total: {len(trades_buffer)})", flush=True)
+            #print(f"[WS] Buffered {len(batch)} trades (total: {len(trades_buffer)})", flush=True)
 
         ws_connected = True
 
@@ -58,7 +58,7 @@ async def flush_trades():
 
     try:
         count = DatabaseService.bulk_insert_trades(batch)
-        print(f"[DB] Inserted {count} trades", flush=True)
+        #print(f"[DB] Inserted {count} trades", flush=True)
     except Exception as e:
         print(f"[DB] Error inserting trades: {e}", flush=True)
         trades_buffer.extend(batch)

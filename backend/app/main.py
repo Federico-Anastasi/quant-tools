@@ -4,6 +4,8 @@ Real-time CVD + LOB Density Analysis
 """
 
 import asyncio
+import logging
+import sys
 import os
 from datetime import datetime, timedelta
 from typing import Optional, List
@@ -14,11 +16,56 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from scipy.ndimage import gaussian_filter1d
 
-from app.database import DatabaseService, check_db_health
+from app.database import DatabaseService, check_db_health, CVDCandle
 from app.websocket_collector import start_collector, get_collector_status
 from app.cvd_pipeline import cvd_pipeline_loop
 from app.runs_pipeline import runs_pipeline_loop
 from app.zone_pipeline import zone_pipeline_loop
+from app.bot_executor import bot_execution_loop
+
+
+# ============================================================================
+# LOGGING CONFIGURATION
+# ============================================================================
+
+def setup_logging():
+    """
+    Configure professional logging for all modules
+
+    Format: [TIMESTAMP] [LEVEL] [MODULE] Message
+    Example: [2025-11-30 21:15:00] [INFO] [bot_executor] Bot 1 entered LONG position
+    """
+    # Create formatter with timestamp, level, module name
+    formatter = logging.Formatter(
+        fmt='[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+
+    # Remove existing handlers (avoid duplicates on reload)
+    root_logger.handlers.clear()
+
+    # Create console handler with formatter
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+
+    # Add handler to root logger
+    root_logger.addHandler(console_handler)
+
+    # Reduce noise from uvicorn/fastapi (only show WARNING+)
+    logging.getLogger("uvicorn").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+    logging.getLogger("fastapi").setLevel(logging.WARNING)
+
+    logging.info("[LOGGING] Professional logging system initialized")
+
+
+# Initialize logging on module load
+setup_logging()
 
 app = FastAPI(
     title="Quant Tools API",
@@ -79,20 +126,23 @@ class OrderFlowZonesResponse(BaseModel):
 # STARTUP
 # ============================================================================
 
+logger = logging.getLogger(__name__)
+
 @app.on_event("startup")
 async def startup_event():
-    print("[APP] Starting Quant Tools Backend", flush=True)
+    logger.info("Starting Quant Tools Backend")
 
     if not check_db_health():
-        print("[APP] WARNING: Database health check failed", flush=True)
+        logger.warning("Database health check failed")
 
     # Start background tasks
     asyncio.create_task(start_collector())
     asyncio.create_task(cvd_pipeline_loop())
     asyncio.create_task(runs_pipeline_loop())
     asyncio.create_task(zone_pipeline_loop())
+    asyncio.create_task(bot_execution_loop())
 
-    print("[APP] All pipelines started", flush=True)
+    logger.info("All pipelines started (WebSocket, CVD, Runs, Zone, Bot Executor)")
 
 
 # ============================================================================
@@ -267,6 +317,188 @@ async def get_order_flow_zones(symbol: str = Query("BTC")):
     )
 
 
+@app.get("/api/bots")
+async def get_bots():
+    """Get all bots with REAL-TIME metrics (equity updated to latest candle price)"""
+    bots = DatabaseService.get_all_bots()
+
+    # Get latest candle price
+    with DatabaseService.get_session() as session:
+        latest_candle = session.query(CVDCandle).filter(
+            CVDCandle.symbol == 'BTC'
+        ).order_by(CVDCandle.timestamp.desc()).first()
+
+        current_price = float(latest_candle.price_close) if latest_candle else None
+
+    # Enrich with REAL-TIME equity (calculated from latest BTC price)
+    for bot in bots:
+        bot_id = bot['id']
+
+        # Get open trade (if any)
+        open_trade = DatabaseService.get_open_trade(bot_id)
+
+        # Calculate total fees paid (from all closed trades + entry fee from open trade)
+        total_fees_paid = DatabaseService.get_total_fees_paid(bot_id)
+
+        if open_trade and current_price:
+            # Calculate real-time unrealized P&L
+            entry_price = float(open_trade['entry_price'])
+            direction = open_trade['direction']
+            capital_allocated = float(open_trade['capital_allocated'])
+            leverage = float(open_trade.get('leverage', 10.0))
+            entry_fee = float(open_trade.get('entry_fee', 0))
+
+            # Raw P&L percentage
+            if direction == 'LONG':
+                raw_pnl_pct = ((current_price - entry_price) / entry_price) * 100
+            else:  # SHORT
+                raw_pnl_pct = ((entry_price - current_price) / entry_price) * 100
+
+            # Leveraged unrealized P&L (minus entry fee already paid)
+            unrealized_pnl = (raw_pnl_pct * leverage / 100) * capital_allocated - entry_fee
+
+            # Real-time equity
+            balance = float(bot['current_balance'])
+            current_equity = balance + capital_allocated + unrealized_pnl
+
+            bot['current_equity'] = current_equity
+            bot['unrealized_pnl'] = unrealized_pnl
+            bot['allocated_capital'] = capital_allocated
+            bot['has_open_position'] = True
+            bot['position_direction'] = direction  # LONG or SHORT
+        else:
+            # No open position - equity = balance
+            bot['current_equity'] = float(bot['current_balance'])
+            bot['unrealized_pnl'] = 0.0
+            bot['allocated_capital'] = 0.0
+            bot['has_open_position'] = False
+            bot['position_direction'] = None
+
+        # Add total fees paid (leverage is already in bot dict from database)
+        bot['total_fees_paid'] = total_fees_paid
+
+    return {
+        "timestamp": datetime.utcnow().isoformat(),
+        "bots": bots
+    }
+
+
+@app.get("/api/bots/leaderboard")
+async def get_leaderboard(
+    sort_by: str = Query("total_pnl_pct", description="Sort by: total_pnl_pct, sharpe_ratio, win_rate"),
+    order: str = Query("desc", description="Order: asc, desc")
+):
+    """Get bots ranked by performance metric"""
+    bots = DatabaseService.get_all_bots()
+
+    # Sort bots
+    reverse = (order == "desc")
+    sorted_bots = sorted(
+        bots,
+        key=lambda b: b.get(sort_by) or 0,
+        reverse=reverse
+    )
+
+    # Add rank
+    leaderboard = []
+    for rank, bot in enumerate(sorted_bots, start=1):
+        leaderboard.append({
+            "rank": rank,
+            "bot_id": bot['id'],
+            "name": bot['name'],
+            "strategy_type": bot['strategy_type'],
+            "status": bot['status'],
+            "total_pnl_pct": bot['total_pnl_pct'],
+            "sharpe_ratio": bot['sharpe_ratio'],
+            "win_rate": bot['win_rate'],
+            "total_trades": bot['total_trades'],
+            "current_equity": bot['current_equity']
+        })
+
+    return {
+        "timestamp": datetime.utcnow().isoformat(),
+        "sort_by": sort_by,
+        "order": order,
+        "leaderboard": leaderboard
+    }
+
+
+@app.get("/api/bots/{bot_id}")
+async def get_bot(bot_id: int):
+    """Get single bot details"""
+    bot = DatabaseService.get_bot_by_id(bot_id)
+    if not bot:
+        return {"error": "Bot not found"}, 404
+    return {
+        "timestamp": datetime.utcnow().isoformat(),
+        "bot": bot
+    }
+
+
+@app.post("/api/bots/{bot_id}/start")
+async def start_bot(bot_id: int):
+    """Start bot execution (set status='active')"""
+    success = DatabaseService.update_bot_status(bot_id, 'active')
+    if not success:
+        return {"error": "Bot not found"}, 404
+    return {"status": "success", "message": f"Bot {bot_id} started"}
+
+
+@app.post("/api/bots/{bot_id}/pause")
+async def pause_bot(bot_id: int):
+    """Pause bot (set status='paused')"""
+    success = DatabaseService.update_bot_status(bot_id, 'paused')
+    if not success:
+        return {"error": "Bot not found"}, 404
+    return {"status": "success", "message": f"Bot {bot_id} paused"}
+
+
+@app.post("/api/bots/{bot_id}/stop")
+async def stop_bot(bot_id: int):
+    """Stop bot permanently (set status='stopped')"""
+    success = DatabaseService.update_bot_status(bot_id, 'stopped')
+    if not success:
+        return {"error": "Bot not found"}, 404
+    return {"status": "success", "message": f"Bot {bot_id} stopped"}
+
+
+@app.get("/api/bots/{bot_id}/trades")
+async def get_bot_trades(
+    bot_id: int,
+    status: Optional[str] = Query(None, description="Filter by status: open, closed"),
+    limit: int = Query(50, ge=1, le=500)
+):
+    """Get bot trades with optional status filter"""
+    trades = DatabaseService.get_bot_trades(bot_id, status=status, limit=limit)
+    return {
+        "timestamp": datetime.utcnow().isoformat(),
+        "bot_id": bot_id,
+        "total_trades": len(trades),
+        "trades": trades
+    }
+
+
+@app.get("/api/bots/{bot_id}/equity")
+async def get_bot_equity(
+    bot_id: int,
+    from_time: Optional[str] = Query(None, description="Start time (ISO format)"),
+    to_time: Optional[str] = Query(None, description="End time (ISO format)"),
+    limit: int = Query(1000, ge=1, le=10000)
+):
+    """Get bot equity curve data"""
+    from_dt = datetime.fromisoformat(from_time) if from_time else None
+    to_dt = datetime.fromisoformat(to_time) if to_time else None
+
+    snapshots = DatabaseService.get_bot_equity(bot_id, from_time=from_dt, to_time=to_dt, limit=limit)
+
+    return {
+        "timestamp": datetime.utcnow().isoformat(),
+        "bot_id": bot_id,
+        "total_snapshots": len(snapshots),
+        "snapshots": snapshots
+    }
+
+
 @app.get("/")
 async def root():
     return {
@@ -277,6 +509,8 @@ async def root():
             "health": "/health",
             "candles": "/api/candles",
             "lob_density": "/api/lob-density",
-            "order_flow_zones": "/api/order-flow-zones"
+            "order_flow_zones": "/api/order-flow-zones",
+            "bots": "/api/bots",
+            "leaderboard": "/api/bots/leaderboard"
         }
     }

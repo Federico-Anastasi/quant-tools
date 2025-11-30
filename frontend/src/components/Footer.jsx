@@ -8,26 +8,26 @@ import React from 'react';
 function Footer({ uptime = '--' }) {
   return (
     <footer className="bg-void-900 border-t border-void-600 px-2 sm:px-6 py-2 sm:py-3">
+      {/* Disclaimer */}
+      <div className="text-[9px] text-gray-600 text-center mb-2 border-b border-void-600 pb-2">
+        Research tool · Not financial advice · Past patterns ≠ future results
+      </div>
+
       <div className="flex flex-col sm:flex-row items-center justify-between gap-2 sm:gap-4">
 
-        {/* Uptime Section - Left */}
-        <div className="flex items-center gap-2 sm:gap-3">
-          <div className="flex items-center gap-1.5 sm:gap-2">
-            <span className="text-[10px] sm:text-xs text-gray-500 font-semibold uppercase tracking-wider">
-              Uptime:
-            </span>
-            <span className="text-xs sm:text-sm font-mono text-neon-cyan font-bold">
-              {uptime}
-            </span>
-          </div>
+        {/* Left Section - Data Source */}
+        <div className="flex items-center gap-2 text-[10px] sm:text-xs text-gray-500">
+          <span>Real-time data BTC PERP from Hyperliquid</span>
         </div>
 
-        {/* Links Section - Right */}
-        <div className="flex items-center gap-3 sm:gap-6 text-[10px] sm:text-xs">
+        {/* Right Section - Branding & Links */}
+        <div className="flex items-center gap-3 sm:gap-4 text-[10px] sm:text-xs">
 
-          {/* Data Source - Hidden on mobile */}
-          <div className="hidden md:flex items-center gap-2 text-gray-400">
-            <span className="text-gray-500">Real-time data BTC PERP from Hyperliquid</span>
+          {/* PsiQuant Branding */}
+          <div className="flex items-center gap-1.5 text-gray-400">
+            <span className="font-bold text-neon-cyan">PsiQuant</span>
+            <span className="text-gray-500">v1.0</span>
+            <span className="text-gray-500">developed by</span>
           </div>
 
           {/* Twitter/X Link */}

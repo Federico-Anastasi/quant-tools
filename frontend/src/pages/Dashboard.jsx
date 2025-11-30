@@ -1,0 +1,594 @@
+import React, { useState, useEffect, useRef } from 'react'
+import axios from 'axios'
+import CVDChart from '../components/CVDChart'
+import LOBChart from '../components/LOBChart'
+import BotsTab from '../components/BotsTab'
+import Sidebar from '../components/Sidebar'
+import Header from '../components/Header'
+import Footer from '../components/Footer'
+import AboutModal from '../components/AboutModal'
+
+const API_URL = import.meta.env.VITE_API_URL || ''  // Empty = same origin via Nginx proxy
+
+export default function Dashboard() {
+  const [candlesData, setCandlesData] = useState(null)
+  const [lobData, setLobData] = useState(null)
+  const [zonesData, setZonesData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [connectionStatus, setConnectionStatus] = useState('connecting')
+  const [activeTab, setActiveTab] = useState('cvd')  // CVD tab by default
+  const [sidebarOpen, setSidebarOpen] = useState(false)  // Mobile sidebar toggle
+  const [showAboutModal, setShowAboutModal] = useState(false)  // About modal state
+  const [kpis, setKpis] = useState({
+    current_price: '--',
+    cvd_net: '--',
+    trades_per_min: '--',
+    last_signal: '--',
+    cumulative_v1: '--',
+    cumulative_v2: '--',
+    cumulative_v3: '--'
+  })
+  const [systemInfo, setSystemInfo] = useState({
+    total_candles: '0',
+    timeframe: '3 min',
+    last_update: '--'
+  })
+  const [uptime, setUptime] = useState('--')
+  const [priceBin, setPriceBin] = useState(50)  // LOB bin size control
+
+  const startTimeRef = useRef(Date.now())
+  const lastUpdateRef = useRef(Date.now())
+
+  // ────────────────────────────────────────────────────────────
+  // DATA ADAPTER: Convert API response to CVDChart format
+  // ────────────────────────────────────────────────────────────
+
+  /**
+   * Convert flat candles array from API to nested structure for CVDChart
+   * API format: [{ price_open, price_high, price_low, price_close, cvd_open, ... }]
+   * CVDChart format: { price_ohlc: { index: [...], data: { open: [...], high: [...], ... } }, ... }
+   */
+  const adaptDataForChart = (apiResponse) => {
+    if (!apiResponse || !apiResponse.candles || apiResponse.candles.length === 0) {
+      return null
+    }
+
+    const candles = apiResponse.candles
+    const count = candles.length
+
+    // Extract all arrays
+    const timestamps = []
+    const price_open = []
+    const price_high = []
+    const price_low = []
+    const price_close = []
+    const cvd_open = []
+    const cvd_high = []
+    const cvd_low = []
+    const cvd_close = []
+    const volume_buy = []
+    const volume_sell = []
+    const efficiency_ratio = []
+    const signals = []
+    const signal_quality = []
+    const weighted_cumulative_v2 = []
+    const momentum_v3 = []
+    const cumulative_signals = []
+
+    for (let i = 0; i < count; i++) {
+      const c = candles[i]
+      timestamps.push(c.timestamp)
+      price_open.push(c.price_open)
+      price_high.push(c.price_high)
+      price_low.push(c.price_low)
+      price_close.push(c.price_close)
+      cvd_open.push(c.cvd_open)
+      cvd_high.push(c.cvd_high)
+      cvd_low.push(c.cvd_low)
+      cvd_close.push(c.cvd_close)
+      volume_buy.push(c.volume_buy)
+      volume_sell.push(c.volume_sell)
+      efficiency_ratio.push(c.efficiency_ratio)
+      signals.push(c.signal)
+      signal_quality.push(c.signal_quality || 0)
+      weighted_cumulative_v2.push(c.cumulative_v2 || 0)  // Backend field: cumulative_v2
+      momentum_v3.push(c.cumulative_v3 || 0)  // Backend field: cumulative_v3
+      cumulative_signals.push(c.cumulative_v1 || 0)  // Backend field: cumulative_v1
+    }
+
+    // Build cumulative segments structure
+    const cumulative_segments = [{
+      index: timestamps,
+      values: cumulative_signals
+    }]
+
+    // Build weighted cumulative segments (v2)
+    const weighted_cumulative_segments = [{
+      index: timestamps,
+      values: weighted_cumulative_v2
+    }]
+
+    // Build momentum v3 segments
+    const momentum_v3_segments = [{
+      index: timestamps,
+      values: momentum_v3
+    }]
+
+    return {
+      price_ohlc: {
+        index: timestamps,
+        data: {
+          open: price_open,
+          high: price_high,
+          low: price_low,
+          close: price_close
+        }
+      },
+      cvd_ohlc: {
+        index: timestamps,
+        data: {
+          open: cvd_open,
+          high: cvd_high,
+          low: cvd_low,
+          close: cvd_close
+        }
+      },
+      vol_buy: {
+        index: timestamps,
+        values: volume_buy
+      },
+      vol_sell: {
+        index: timestamps,
+        values: volume_sell
+      },
+      ratio: {
+        index: timestamps,
+        values: efficiency_ratio
+      },
+      signals: {
+        index: timestamps,
+        values: signals
+      },
+      cumulative_segments: cumulative_segments,
+      // v2 signal fields
+      signal_quality: {
+        index: timestamps,
+        values: signal_quality
+      },
+      weighted_cumulative_segments: weighted_cumulative_segments,
+      // v3 signal fields
+      momentum_v3_segments: momentum_v3_segments
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────
+  // KPI CALCULATION
+  // ────────────────────────────────────────────────────────────
+
+  /**
+   * Calculate KPIs from candle data
+   */
+  const calculateKPIs = (apiResponse) => {
+    if (!apiResponse || !apiResponse.candles || apiResponse.candles.length === 0) {
+      return {
+        current_price: '--',
+        cvd_net: '--',
+        trades_per_min: '--',
+        last_signal: '--',
+        signal_quality: '--',
+        weighted_cumulative_v2: '--',
+        momentum_v3: '--'
+      }
+    }
+
+    const candles = apiResponse.candles
+    const lastCandle = candles[candles.length - 1]
+
+    // Current Price
+    const current_price = `$${lastCandle.price_close.toLocaleString('en-US', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    })}`
+
+    // CVD Net (last CVD close value)
+    const cvd_net = lastCandle.cvd_close.toFixed(2)
+
+    // Trades/Min (estimate from volume)
+    // Since we have 3-minute candles, divide total volume by 3
+    const total_volume = lastCandle.volume_buy + lastCandle.volume_sell
+    const trades_per_min = (total_volume / 3).toFixed(1)
+
+    // Last Signal (from signal field)
+    let last_signal = '--'
+    if (lastCandle.signal !== 0 && lastCandle.signal !== null && lastCandle.signal !== undefined) {
+      const sig = lastCandle.signal
+      const absVal = Math.abs(sig)
+      const sign = sig > 0 ? '+' : ''
+
+      let label = ''
+      if (absVal === 3) label = sig > 0 ? 'STRONG BULL' : 'STRONG BEAR'
+      else if (absVal === 2) label = sig > 0 ? 'BULL DIV' : 'BEAR DIV'
+      else if (absVal === 1) label = 'ABSORPTION'
+
+      last_signal = `${sign}${sig} ${label}`
+    }
+
+    // Cumulative values (v1, v2, v3)
+    const cumulative_v1 = lastCandle.cumulative_v1 !== null && lastCandle.cumulative_v1 !== undefined
+      ? lastCandle.cumulative_v1.toFixed(2)
+      : '--'
+
+    const cumulative_v2 = lastCandle.cumulative_v2 !== null && lastCandle.cumulative_v2 !== undefined
+      ? lastCandle.cumulative_v2.toFixed(2)
+      : '--'
+
+    const cumulative_v3 = lastCandle.cumulative_v3 !== null && lastCandle.cumulative_v3 !== undefined
+      ? lastCandle.cumulative_v3.toFixed(2)
+      : '--'
+
+    return {
+      current_price,
+      cvd_net,
+      trades_per_min,
+      last_signal,
+      cumulative_v1,
+      cumulative_v2,
+      cumulative_v3
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────
+  // UPTIME CALCULATION
+  // ────────────────────────────────────────────────────────────
+
+  const calculateUptime = () => {
+    const elapsed = Date.now() - startTimeRef.current
+    const seconds = Math.floor(elapsed / 1000)
+    const minutes = Math.floor(seconds / 60)
+    const hours = Math.floor(minutes / 60)
+    const days = Math.floor(hours / 24)
+
+    if (days > 0) return `${days}d ${hours % 24}h`
+    if (hours > 0) return `${hours}h ${minutes % 60}m`
+    if (minutes > 0) return `${minutes}m ${seconds % 60}s`
+    return `${seconds}s`
+  }
+
+  // ────────────────────────────────────────────────────────────
+  // LAST UPDATE CALCULATION
+  // ────────────────────────────────────────────────────────────
+
+  const calculateLastUpdate = () => {
+    const elapsed = Date.now() - lastUpdateRef.current
+    const seconds = Math.floor(elapsed / 1000)
+
+    if (seconds < 5) return 'just now'
+    if (seconds < 60) return `${seconds}s ago`
+    const minutes = Math.floor(seconds / 60)
+    if (minutes < 60) return `${minutes}m ago`
+    const hours = Math.floor(minutes / 60)
+    return `${hours}h ago`
+  }
+
+  // ────────────────────────────────────────────────────────────
+  // DATA FETCHING
+  // ────────────────────────────────────────────────────────────
+
+  const fetchCandles = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+
+      console.log('[Dashboard] Fetching candles...')
+      const response = await axios.get(`${API_URL}/api/candles`, {
+        params: { hours: 24, limit: 1000 }
+      })
+
+      console.log('[Dashboard] Candles response:', {
+        total: response.data.total_candles,
+        candlesLength: response.data.candles?.length,
+        firstCandle: response.data.candles?.[0],
+        lastCandle: response.data.candles?.[response.data.candles?.length - 1]
+      })
+
+      // Update raw data
+      setCandlesData(response.data)
+
+      // Calculate KPIs
+      const newKpis = calculateKPIs(response.data)
+      setKpis(newKpis)
+
+      // Update system info
+      setSystemInfo({
+        total_candles: response.data.total_candles.toString(),
+        timeframe: '3 min',
+        last_update: 'just now'
+      })
+
+      // Update connection status
+      setConnectionStatus('connected')
+
+      // Update last update time
+      lastUpdateRef.current = Date.now()
+
+    } catch (err) {
+      console.error('[Dashboard] Error fetching candles:', err)
+      setError(err.message)
+      setConnectionStatus('error')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const fetchLOBDensity = async () => {
+    try {
+      console.log('[Dashboard] Fetching LOB density with price_bin:', priceBin)
+      const response = await axios.get(`${API_URL}/api/lob-density`, {
+        params: {
+          symbol: 'BTC',
+          hours: 720,           // Fixed 30 days
+          price_bin: priceBin   // User-controlled bin size
+        }
+      })
+
+      console.log('[Dashboard] LOB density response:', {
+        timestamp: response.data.timestamp,
+        p_current: response.data.p_current,
+        bins: response.data.price_bins?.length,
+        price_bin: priceBin
+      })
+
+      setLobData(response.data)
+
+    } catch (err) {
+      console.error('[Dashboard] Error fetching LOB density:', err)
+    }
+  }
+
+  const fetchOrderFlowZones = async () => {
+    try {
+      console.log('[Dashboard] Fetching order flow zones...')
+      const response = await axios.get(`${API_URL}/api/order-flow-zones`, {
+        params: { symbol: 'BTC' }
+      })
+
+      console.log('[Dashboard] Order flow zones response:', {
+        timestamp: response.data.timestamp,
+        cumulative_v2: response.data.cumulative_v2,
+        cumulative_v3: response.data.cumulative_v3
+      })
+
+      setZonesData(response.data)
+
+    } catch (err) {
+      console.error('[Dashboard] Error fetching order flow zones:', err)
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────
+  // SCREENSHOT HANDLER
+  // ────────────────────────────────────────────────────────────
+
+  const handleScreenshot = async () => {
+    console.log('[Dashboard] Screenshot requested for tab:', activeTab)
+
+    try {
+      // Generate timestamp for filename
+      const now = new Date()
+      const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, -5)
+      const filename = `${activeTab}-full-page_${timestamp}.png`
+
+      // Use html2canvas to capture entire application (header, sidebar, chart, footer)
+      const html2canvas = (await import('html2canvas')).default
+      const appContainer = document.getElementById('app-container')
+
+      if (!appContainer) {
+        console.warn('[Dashboard] App container not found')
+        return
+      }
+
+      const canvas = await html2canvas(appContainer, {
+        backgroundColor: '#0b0e11',
+        scale: 2,  // 2x resolution for high quality
+        logging: false,
+        useCORS: true,  // Allow cross-origin images if any
+        height: appContainer.scrollHeight,  // Capture full height including any overflow
+        windowHeight: appContainer.scrollHeight
+      })
+
+      const imageDataUrl = canvas.toDataURL('image/png')
+
+      // Create download link
+      const link = document.createElement('a')
+      link.href = imageDataUrl
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+
+      console.log(`[Dashboard] Full page screenshot saved: ${filename}`)
+    } catch (err) {
+      console.error('[Dashboard] Screenshot failed:', err)
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────
+  // RESET VIEW HANDLER
+  // ────────────────────────────────────────────────────────────
+
+  const handleResetView = () => {
+    console.log('[Dashboard] Reset view requested - User should double-click axis')
+    // This is handled by CVDChart's double-click interaction
+    // Button is informational only
+  }
+
+  // ────────────────────────────────────────────────────────────
+  // TAB CHANGE HANDLER
+  // ────────────────────────────────────────────────────────────
+
+  const handleTabChange = (tab) => {
+    console.log(`[Dashboard] Switching to ${tab}`)
+    setActiveTab(tab)
+  }
+
+  // ────────────────────────────────────────────────────────────
+  // LIFECYCLE
+  // ────────────────────────────────────────────────────────────
+
+  // Initial load
+  useEffect(() => {
+    fetchCandles()
+    fetchLOBDensity()
+    fetchOrderFlowZones()
+
+    // Refresh data every 6 seconds (offset from backend 5s save to avoid race conditions)
+    const dataInterval = setInterval(() => {
+      fetchCandles()
+      fetchOrderFlowZones()  // Update zones together with candles to keep signals in sync
+      if (activeTab === 'lob') {
+        fetchLOBDensity()
+      }
+    }, 6000)
+
+    // Update uptime and last update display every second
+    const uiInterval = setInterval(() => {
+      setUptime(calculateUptime())
+      setSystemInfo(prev => ({
+        ...prev,
+        last_update: calculateLastUpdate()
+      }))
+    }, 1000)
+
+    return () => {
+      clearInterval(dataInterval)
+      clearInterval(uiInterval)
+    }
+  }, [activeTab, priceBin])  // Re-fetch when priceBin changes
+
+  // Fetch LOB when tab changes to LOB
+  useEffect(() => {
+    if (activeTab === 'lob' && !lobData) {
+      fetchLOBDensity()
+    }
+  }, [activeTab])
+
+  // ────────────────────────────────────────────────────────────
+  // RENDER
+  // ────────────────────────────────────────────────────────────
+
+  // Adapt data for CVDChart
+  const chartData = candlesData ? adaptDataForChart(candlesData) : null
+
+  return (
+    <div id="app-container" className="h-screen w-screen flex flex-col bg-void-900 text-gray-100 font-sans antialiased overflow-hidden">
+
+      {/* Header */}
+      <Header
+        status={connectionStatus}
+        onScreenshot={handleScreenshot}
+        activeTab={activeTab}
+        onTabChange={handleTabChange}
+        onMenuToggle={() => setSidebarOpen(!sidebarOpen)}
+        sidebarOpen={sidebarOpen}
+        onAboutClick={() => setShowAboutModal(true)}
+      />
+
+      {/* Main Layout: Sidebar + Content */}
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* Mobile Backdrop */}
+        {sidebarOpen && (
+          <div
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+
+        {/* Sidebar - Desktop: always visible, Mobile: slide-in drawer */}
+        <div className={`
+          fixed lg:relative inset-y-0 left-0 z-50
+          w-[280px] lg:w-[260px]
+          transform transition-transform duration-300 ease-out
+          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+        `}>
+          <Sidebar
+            kpis={kpis}
+            systemInfo={systemInfo}
+            zonesData={zonesData}
+            onResetView={handleResetView}
+            onClose={() => setSidebarOpen(false)}
+          />
+        </div>
+
+        {/* Main Content */}
+        <main className="flex-1 bg-void-900 overflow-hidden relative p-2">
+        {/* Loading Overlay (Only on first load) */}
+        {loading && !candlesData && (
+          <div className="absolute inset-0 bg-void-900/90 backdrop-blur-sm flex items-center justify-center z-50">
+            <div className="text-center">
+              <div className="w-12 h-12 border-4 border-void-600 border-t-neon-cyan rounded-full animate-spin mx-auto mb-3" />
+              <div className="text-sm text-gray-400">Loading data...</div>
+            </div>
+          </div>
+        )}
+
+        {/* Error State (Only if no data) */}
+        {error && !candlesData && (
+          <div className="absolute inset-0 flex items-center justify-center z-50">
+            <div className="bg-void-800 border border-neon-red p-6 rounded-lg max-w-md">
+              <h3 className="text-neon-red font-bold mb-2">Error Loading Data</h3>
+              <p className="text-gray-400 text-sm">{error}</p>
+              <button
+                onClick={() => fetchCandles()}
+                className="mt-4 bg-void-700 hover:bg-void-600 border border-void-500 px-4 py-2 rounded text-sm transition-all"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Chart (Show once we have data) */}
+        {activeTab === 'cvd' && chartData && (
+          <CVDChart
+            data={chartData}
+            zonesData={zonesData}
+          />
+        )}
+
+        {/* LOB Chart (Show when LOB tab is active) */}
+        {activeTab === 'lob' && chartData && lobData && (
+          <LOBChart
+            priceData={chartData}
+            lobData={lobData}
+            priceBin={priceBin}
+            onPriceBinChange={setPriceBin}
+          />
+        )}
+        {activeTab === 'lob' && (!chartData || !lobData) && (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <div className="w-12 h-12 border-4 border-void-600 border-t-neon-cyan rounded-full animate-spin mx-auto mb-3" />
+              <div className="text-sm text-gray-400">Loading LOB data...</div>
+            </div>
+          </div>
+        )}
+
+        {/* Bots Tab (Show when bots tab is active) */}
+        {activeTab === 'bots' && (
+          <BotsTab />
+        )}
+        </main>
+      </div>
+
+      {/* Footer */}
+      <Footer uptime={uptime} />
+
+      {/* About Modal */}
+      <AboutModal
+        isOpen={showAboutModal}
+        onClose={() => setShowAboutModal(false)}
+      />
+    </div>
+  )
+}

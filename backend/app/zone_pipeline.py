@@ -92,7 +92,7 @@ async def zone_pipeline_loop():
                     'mean_return': _to_python_type(zone_data['mean_return']),
                     'n_trades': _to_python_type(zone_data['n_trades']),
                     'tp_pct': _to_python_type(zone_data['tp_pct']),
-                    'sl_pct': _to_python_type(zone_data['sl_pct']),
+                    'sl_pct': abs(_to_python_type(zone_data['sl_pct'])),
                     'max_candles': _to_python_type(zone_data['max_candles']),
                     'ci_95_lower': _to_python_type(zone_data.get('ci_95_lower')),
                     'ci_95_upper': _to_python_type(zone_data.get('ci_95_upper')),

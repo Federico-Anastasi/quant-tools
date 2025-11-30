@@ -83,7 +83,7 @@ export default function Sidebar({ kpis = {}, systemInfo = {}, zonesData = null, 
     return 'text-gray-300';
   };
 
-  // Calculate market bias from zone data
+  // Calculate market bias from zone data (renamed: Order Flow Regime)
   const getMarketBias = () => {
     if (!zonesData || !zonesData.cumulative_v2 || !zonesData.cumulative_v3) {
       return { label: '--', color: 'text-gray-400', emoji: '⚪' };
@@ -93,20 +93,44 @@ export default function Sidebar({ kpis = {}, systemInfo = {}, zonesData = null, 
     const v3IsLong = zonesData.cumulative_v3.is_long;
 
     if (v2IsLong && v3IsLong) {
-      return { label: 'BULLISH', color: 'text-green-400', emoji: '🟢' };
+      return { label: 'Bullish regime observed', color: 'text-blue-400', emoji: '🔵' };
     } else if (!v2IsLong && !v3IsLong) {
-      return { label: 'BEARISH', color: 'text-red-400', emoji: '🔴' };
+      return { label: 'Bearish regime observed', color: 'text-orange-400', emoji: '🟠' };
     } else {
-      return { label: 'MIXED', color: 'text-yellow-400', emoji: '🟡' };
+      return { label: 'Mixed regime observed', color: 'text-gray-400', emoji: '⚪' };
     }
   };
 
-  // Get direction label and color for a zone
+  // Get direction label and color for a zone (neutral colors: blue/orange)
   const getDirectionLabel = (isLong) => {
     return {
       label: isLong ? 'LONG' : 'SHORT',
-      color: isLong ? 'text-green-400' : 'text-red-400',
-      bgColor: isLong ? 'bg-green-500/10 border-green-500/30' : 'bg-red-500/10 border-red-500/30'
+      color: isLong ? 'text-blue-400' : 'text-orange-400',
+      bgColor: isLong ? 'bg-blue-500/10 border-blue-500/30' : 'bg-orange-500/10 border-orange-500/30'
+    };
+  };
+
+  // Sample size warning system (aggressive)
+  const getWarningLevel = (n) => {
+    if (n < 10) return {
+      color: 'text-red-400',
+      icon: '🚨',
+      text: `Critical: Only ${n} samples - Unreliable`
+    };
+    if (n < 20) return {
+      color: 'text-orange-400',
+      icon: '⚠️',
+      text: `Warning: ${n} samples - High uncertainty`
+    };
+    if (n < 30) return {
+      color: 'text-yellow-400',
+      icon: '⚠️',
+      text: `Low sample: ${n} trades - Use caution`
+    };
+    return {
+      color: 'text-gray-500',
+      icon: 'ℹ️',
+      text: `${n} samples · 48h window`
     };
   };
 
@@ -214,20 +238,26 @@ export default function Sidebar({ kpis = {}, systemInfo = {}, zonesData = null, 
         </div>
       </div>
 
-      {/* Optimal Trading Zones */}
+      {/* Statistical Patterns (Experimental) */}
       <div>
-        <h2 className="text-xs uppercase tracking-widest text-gray-500 font-bold mb-3">Optimal Zones</h2>
+        <h2 className="text-xs uppercase tracking-widest text-gray-500 font-bold mb-3">Statistical Patterns (Experimental)</h2>
 
-        {/* Market Bias */}
+        {/* Order Flow Regime (48h) */}
         {(() => {
           const bias = getMarketBias();
           return (
-            <div className={`bg-void-800 border border-void-600 rounded-md p-3 mb-3 text-center ${bias.label !== '--' ? 'border-' + (bias.label === 'BULLISH' ? 'green' : bias.label === 'BEARISH' ? 'red' : 'yellow') + '-500/30' : ''}`}>
-              <div className="text-xs text-gray-500 mb-1">Market Bias</div>
-              <div className={`text-lg font-bold ${bias.color} flex items-center justify-center gap-2`}>
+            <div className="bg-void-800 border border-void-600 rounded-md p-3 mb-3">
+              <div className="text-xs text-gray-500 mb-1">Order Flow Regime (48h)</div>
+              <div className={`text-sm font-bold ${bias.color} flex items-center justify-center gap-2`}>
                 <span>{bias.emoji}</span>
                 <span>{bias.label}</span>
               </div>
+              {zonesData && zonesData.cumulative_v2 && (
+                <div className={`text-[9px] ${getWarningLevel(zonesData.cumulative_v2.n_trades).color} flex items-center gap-1 justify-center mt-2`}>
+                  <span>{getWarningLevel(zonesData.cumulative_v2.n_trades).icon}</span>
+                  <span>{getWarningLevel(zonesData.cumulative_v2.n_trades).text}</span>
+                </div>
+              )}
             </div>
           );
         })()}
@@ -236,6 +266,7 @@ export default function Sidebar({ kpis = {}, systemInfo = {}, zonesData = null, 
         {zonesData?.cumulative_v2 && (() => {
           const v2 = zonesData.cumulative_v2;
           const dir = getDirectionLabel(v2.is_long);
+          const warning = getWarningLevel(v2.n_trades);
           return (
             <div className={`bg-void-800 border rounded-md p-3 mb-2 ${dir.bgColor}`}>
               <div className="flex justify-between items-center mb-2">
@@ -248,15 +279,15 @@ export default function Sidebar({ kpis = {}, systemInfo = {}, zonesData = null, 
                   <span className="text-gray-300 font-mono font-bold">{v2.zone_min.toFixed(1)} to {v2.zone_max.toFixed(1)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Mean Return</span>
+                  <span className="text-gray-500">Avg Return (backtest)</span>
                   <span className={`font-mono font-bold ${v2.mean_return > 0 ? 'text-green-400' : 'text-red-400'}`}>
                     {v2.mean_return > 0 ? '+' : ''}{v2.mean_return.toFixed(2)}%
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">CI 95%</span>
-                  <span className="text-gray-300 font-mono">
-                    {v2.ci_95_lower ? `${v2.ci_95_lower.toFixed(2)}% → ${v2.ci_95_upper.toFixed(2)}%` : 'N/A'}
+                  <span className="text-gray-300 font-mono text-[9px]">
+                    {v2.ci_95_lower ? `±${((v2.ci_95_upper - v2.ci_95_lower) / 2).toFixed(2)}% (${v2.ci_95_lower.toFixed(2)}-${v2.ci_95_upper.toFixed(2)}%)` : 'N/A'}
                   </span>
                 </div>
                 <div className="flex justify-between">
@@ -268,6 +299,11 @@ export default function Sidebar({ kpis = {}, systemInfo = {}, zonesData = null, 
                   <span className="text-gray-300 font-mono">{v2.tp_pct.toFixed(1)}% / {v2.sl_pct.toFixed(1)}%</span>
                 </div>
               </div>
+              {/* Sample warning */}
+              <div className={`text-[9px] ${warning.color} flex items-center gap-1 mt-2`}>
+                <span>{warning.icon}</span>
+                <span>{warning.text}</span>
+              </div>
             </div>
           );
         })()}
@@ -276,6 +312,7 @@ export default function Sidebar({ kpis = {}, systemInfo = {}, zonesData = null, 
         {zonesData?.cumulative_v3 && (() => {
           const v3 = zonesData.cumulative_v3;
           const dir = getDirectionLabel(v3.is_long);
+          const warning = getWarningLevel(v3.n_trades);
           return (
             <div className={`bg-void-800 border rounded-md p-3 ${dir.bgColor}`}>
               <div className="flex justify-between items-center mb-2">
@@ -288,15 +325,15 @@ export default function Sidebar({ kpis = {}, systemInfo = {}, zonesData = null, 
                   <span className="text-gray-300 font-mono font-bold">{v3.zone_min.toFixed(1)} to {v3.zone_max.toFixed(1)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Mean Return</span>
+                  <span className="text-gray-500">Avg Return (backtest)</span>
                   <span className={`font-mono font-bold ${v3.mean_return > 0 ? 'text-green-400' : 'text-red-400'}`}>
                     {v3.mean_return > 0 ? '+' : ''}{v3.mean_return.toFixed(2)}%
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">CI 95%</span>
-                  <span className="text-gray-300 font-mono">
-                    {v3.ci_95_lower ? `${v3.ci_95_lower.toFixed(2)}% → ${v3.ci_95_upper.toFixed(2)}%` : 'N/A'}
+                  <span className="text-gray-300 font-mono text-[9px]">
+                    {v3.ci_95_lower ? `±${((v3.ci_95_upper - v3.ci_95_lower) / 2).toFixed(2)}% (${v3.ci_95_lower.toFixed(2)}-${v3.ci_95_upper.toFixed(2)}%)` : 'N/A'}
                   </span>
                 </div>
                 <div className="flex justify-between">
@@ -308,6 +345,11 @@ export default function Sidebar({ kpis = {}, systemInfo = {}, zonesData = null, 
                   <span className="text-gray-300 font-mono">{v3.tp_pct.toFixed(1)}% / {v3.sl_pct.toFixed(1)}%</span>
                 </div>
               </div>
+              {/* Sample warning */}
+              <div className={`text-[9px] ${warning.color} flex items-center gap-1 mt-2`}>
+                <span>{warning.icon}</span>
+                <span>{warning.text}</span>
+              </div>
             </div>
           );
         })()}
@@ -317,19 +359,6 @@ export default function Sidebar({ kpis = {}, systemInfo = {}, zonesData = null, 
             Loading zones...
           </div>
         )}
-      </div>
-
-      {/* Controls */}
-      <div>
-        <h2 className="text-xs uppercase tracking-widest text-gray-500 font-bold mb-3">Controls</h2>
-        <div className="flex flex-col gap-3">
-          <button
-            onClick={onResetView}
-            className="w-full bg-void-800 hover:bg-void-700 border border-void-600 hover:border-gray-500 text-gray-400 hover:text-gray-200 py-2 rounded text-sm transition-all"
-          >
-            Reset View (Double Click Axis)
-          </button>
-        </div>
       </div>
 
       {/* Signal Legend */}
