@@ -52,25 +52,25 @@ export default function Sidebar({ kpis = {}, systemInfo = {}, zonesData = null, 
     return `${minutes}m ${seconds}s ago`;
   };
 
-  // Determine signal color based on strength
-  const getSignalColor = () => {
+  // Determine classification color based on strength
+  const getClassificationColor = () => {
     if (last_signal === '--') return 'text-gray-300';
-    const signal = parseInt(last_signal);
-    if (signal >= 2) return 'text-neon-cyan';
-    if (signal === 1) return 'text-neon-cyan';
-    if (signal <= -2) return 'text-neon-red';
-    if (signal === -1) return 'text-neon-red';
+    const classification = parseInt(last_signal);
+    if (classification >= 2) return 'text-neon-cyan';
+    if (classification === 1) return 'text-neon-cyan';
+    if (classification <= -2) return 'text-neon-red';
+    if (classification === -1) return 'text-neon-red';
     return 'text-gray-300';
   };
 
-  // Determine border color for last signal card
-  const getSignalBorderColor = () => {
+  // Determine border color for last classification card
+  const getClassificationBorderColor = () => {
     if (last_signal === '--') return 'border-void-600';
-    const signal = parseInt(last_signal);
-    if (signal >= 2) return 'border-neon-cyan/50';
-    if (signal === 1) return 'border-neon-cyan/30';
-    if (signal <= -2) return 'border-neon-red/50';
-    if (signal === -1) return 'border-neon-red/30';
+    const classification = parseInt(last_signal);
+    if (classification >= 2) return 'border-neon-cyan/50';
+    if (classification === 1) return 'border-neon-cyan/30';
+    if (classification <= -2) return 'border-neon-red/50';
+    if (classification === -1) return 'border-neon-red/30';
     return 'border-void-600';
   };
 
@@ -93,20 +93,20 @@ export default function Sidebar({ kpis = {}, systemInfo = {}, zonesData = null, 
     const v3IsLong = zonesData.cumulative_v3.is_long;
 
     if (v2IsLong && v3IsLong) {
-      return { label: 'Bullish regime observed', color: 'text-blue-400', emoji: '🔵' };
+      return { label: 'Positive regime observed', color: 'text-blue-400', emoji: '🔵' };
     } else if (!v2IsLong && !v3IsLong) {
-      return { label: 'Bearish regime observed', color: 'text-orange-400', emoji: '🟠' };
+      return { label: 'Negative regime observed', color: 'text-orange-400', emoji: '🟠' };
     } else {
       return { label: 'Mixed regime observed', color: 'text-gray-400', emoji: '⚪' };
     }
   };
 
-  // Get direction label and color for a zone (neutral colors: blue/orange)
+  // Get direction label and color for a zone (green for LONG, red for SHORT)
   const getDirectionLabel = (isLong) => {
     return {
       label: isLong ? 'LONG' : 'SHORT',
-      color: isLong ? 'text-blue-400' : 'text-orange-400',
-      bgColor: isLong ? 'bg-blue-500/10 border-blue-500/30' : 'bg-orange-500/10 border-orange-500/30'
+      color: isLong ? 'text-green-400' : 'text-red-400',
+      bgColor: 'bg-void-800 border-void-600'
     };
   };
 
@@ -183,14 +183,14 @@ export default function Sidebar({ kpis = {}, systemInfo = {}, zonesData = null, 
         </div>
       </div>
 
-      {/* Last Signal */}
+      {/* Last Classification */}
       <div>
-        <h2 className="text-xs uppercase tracking-widest text-gray-500 font-bold mb-3">Last Signal</h2>
-        <div className={`bg-void-800 border ${getSignalBorderColor()} rounded-md p-2.5 relative overflow-hidden transition-colors`}>
+        <h2 className="text-xs uppercase tracking-widest text-gray-500 font-bold mb-3">Last Classification</h2>
+        <div className={`bg-void-800 border ${getClassificationBorderColor()} rounded-md p-2.5 relative overflow-hidden transition-colors`}>
           <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-gray-500"></div>
           <div className="flex justify-between items-center">
-            <span className="text-[10px] text-gray-500">Signal</span>
-            <div className={`text-base font-bold font-mono ${getSignalColor()}`}>{last_signal}</div>
+            <span className="text-[10px] text-gray-500">Classification</span>
+            <div className={`text-base font-bold font-mono ${getClassificationColor()}`}>{last_signal}</div>
           </div>
         </div>
       </div>
@@ -361,19 +361,19 @@ export default function Sidebar({ kpis = {}, systemInfo = {}, zonesData = null, 
         )}
       </div>
 
-      {/* Signal Legend */}
+      {/* Classification Legend */}
       <div>
-        <h2 className="text-xs uppercase tracking-widest text-gray-500 font-bold mb-3">Signal Legend</h2>
+        <h2 className="text-xs uppercase tracking-widest text-gray-500 font-bold mb-3">Classification Legend</h2>
         <div className="bg-void-800 border border-void-600 rounded-md p-3 text-xs font-mono space-y-1.5">
 
           <div className="flex justify-between items-center">
             <span className="text-neon-cyan font-bold">+3</span>
-            <span className="text-gray-400">Strong Bull</span>
+            <span className="text-gray-400">Strong Coherence</span>
           </div>
 
           <div className="flex justify-between items-center">
             <span className="text-neon-cyan font-bold">+2</span>
-            <span className="text-gray-400">Bull Div</span>
+            <span className="text-gray-400">Divergence</span>
           </div>
 
           <div className="flex justify-between items-center">
@@ -390,12 +390,12 @@ export default function Sidebar({ kpis = {}, systemInfo = {}, zonesData = null, 
 
           <div className="flex justify-between items-center">
             <span className="text-neon-red font-bold">-2</span>
-            <span className="text-gray-400">Bear Div</span>
+            <span className="text-gray-400">Divergence</span>
           </div>
 
           <div className="flex justify-between items-center">
             <span className="text-neon-red font-bold">-3</span>
-            <span className="text-gray-400">Strong Bear</span>
+            <span className="text-gray-400">Strong Coherence</span>
           </div>
 
         </div>

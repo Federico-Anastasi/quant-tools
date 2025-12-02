@@ -7,10 +7,13 @@ import Sidebar from '../components/Sidebar'
 import Header from '../components/Header'
 import Footer from '../components/Footer'
 import AboutModal from '../components/AboutModal'
+import { useRequestCache } from '../hooks/useRequestCache'
 
 const API_URL = import.meta.env.VITE_API_URL || ''  // Empty = same origin via Nginx proxy
 
 export default function Dashboard() {
+  const cachedRequest = useRequestCache()
+
   const [candlesData, setCandlesData] = useState(null)
   const [lobData, setLobData] = useState(null)
   const [zonesData, setZonesData] = useState(null)
@@ -280,17 +283,11 @@ export default function Dashboard() {
       setLoading(true)
       setError(null)
 
-      console.log('[Dashboard] Fetching candles...')
-      const response = await axios.get(`${API_URL}/api/candles`, {
-        params: { hours: 24, limit: 1000 }
-      })
-
-      console.log('[Dashboard] Candles response:', {
-        total: response.data.total_candles,
-        candlesLength: response.data.candles?.length,
-        firstCandle: response.data.candles?.[0],
-        lastCandle: response.data.candles?.[response.data.candles?.length - 1]
-      })
+      const response = await cachedRequest('candles', () =>
+        axios.get(`${API_URL}/api/candles`, {
+          params: { hours: 24, limit: 1000 }
+        })
+      )
 
       // Update raw data
       setCandlesData(response.data)
@@ -323,21 +320,15 @@ export default function Dashboard() {
 
   const fetchLOBDensity = async () => {
     try {
-      console.log('[Dashboard] Fetching LOB density with price_bin:', priceBin)
-      const response = await axios.get(`${API_URL}/api/lob-density`, {
-        params: {
-          symbol: 'BTC',
-          hours: 720,           // Fixed 30 days
-          price_bin: priceBin   // User-controlled bin size
-        }
-      })
-
-      console.log('[Dashboard] LOB density response:', {
-        timestamp: response.data.timestamp,
-        p_current: response.data.p_current,
-        bins: response.data.price_bins?.length,
-        price_bin: priceBin
-      })
+      const response = await cachedRequest(`lob-density-${priceBin}`, () =>
+        axios.get(`${API_URL}/api/lob-density`, {
+          params: {
+            symbol: 'BTC',
+            hours: 720,           // Fixed 30 days
+            price_bin: priceBin   // User-controlled bin size
+          }
+        })
+      )
 
       setLobData(response.data)
 
@@ -348,16 +339,11 @@ export default function Dashboard() {
 
   const fetchOrderFlowZones = async () => {
     try {
-      console.log('[Dashboard] Fetching order flow zones...')
-      const response = await axios.get(`${API_URL}/api/order-flow-zones`, {
-        params: { symbol: 'BTC' }
-      })
-
-      console.log('[Dashboard] Order flow zones response:', {
-        timestamp: response.data.timestamp,
-        cumulative_v2: response.data.cumulative_v2,
-        cumulative_v3: response.data.cumulative_v3
-      })
+      const response = await cachedRequest('order-flow-zones', () =>
+        axios.get(`${API_URL}/api/order-flow-zones`, {
+          params: { symbol: 'BTC' }
+        })
+      )
 
       setZonesData(response.data)
 
@@ -371,8 +357,6 @@ export default function Dashboard() {
   // ────────────────────────────────────────────────────────────
 
   const handleScreenshot = async () => {
-    console.log('[Dashboard] Screenshot requested for tab:', activeTab)
-
     try {
       // Generate timestamp for filename
       const now = new Date()
@@ -384,7 +368,6 @@ export default function Dashboard() {
       const appContainer = document.getElementById('app-container')
 
       if (!appContainer) {
-        console.warn('[Dashboard] App container not found')
         return
       }
 
@@ -406,8 +389,6 @@ export default function Dashboard() {
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
-
-      console.log(`[Dashboard] Full page screenshot saved: ${filename}`)
     } catch (err) {
       console.error('[Dashboard] Screenshot failed:', err)
     }
@@ -418,7 +399,6 @@ export default function Dashboard() {
   // ────────────────────────────────────────────────────────────
 
   const handleResetView = () => {
-    console.log('[Dashboard] Reset view requested - User should double-click axis')
     // This is handled by CVDChart's double-click interaction
     // Button is informational only
   }
@@ -428,7 +408,6 @@ export default function Dashboard() {
   // ────────────────────────────────────────────────────────────
 
   const handleTabChange = (tab) => {
-    console.log(`[Dashboard] Switching to ${tab}`)
     setActiveTab(tab)
   }
 
@@ -436,11 +415,21 @@ export default function Dashboard() {
   // LIFECYCLE
   // ────────────────────────────────────────────────────────────
 
-  // Initial load
+  // Initial load - PRIORITIZED ORDER to avoid browser connection queuing
   useEffect(() => {
+    // Priority 1: Candles (critical, fast - 30ms)
     fetchCandles()
-    fetchLOBDensity()
+
+    // Priority 2: Order flow zones (critical for CVD, very fast - 5ms, 0.8kB)
     fetchOrderFlowZones()
+
+    // Priority 3: LOB density (slower query, only if tab active)
+    // Delayed by 50ms to ensure candles + zones complete first
+    setTimeout(() => {
+      if (activeTab === 'lob') {
+        fetchLOBDensity()
+      }
+    }, 50)
 
     // Refresh data every 6 seconds (offset from backend 5s save to avoid race conditions)
     const dataInterval = setInterval(() => {
@@ -464,7 +453,7 @@ export default function Dashboard() {
       clearInterval(dataInterval)
       clearInterval(uiInterval)
     }
-  }, [activeTab, priceBin])  // Re-fetch when priceBin changes
+  }, [])  // Only run on mount, not on activeTab/priceBin changes
 
   // Fetch LOB when tab changes to LOB
   useEffect(() => {
@@ -472,6 +461,17 @@ export default function Dashboard() {
       fetchLOBDensity()
     }
   }, [activeTab])
+
+  // Re-fetch LOB density only when priceBin changes (debounced)
+  useEffect(() => {
+    if (activeTab === 'lob' && lobData) {
+      // Debounce: wait 300ms after user stops adjusting slider
+      const timeout = setTimeout(() => {
+        fetchLOBDensity()
+      }, 300)
+      return () => clearTimeout(timeout)
+    }
+  }, [priceBin])
 
   // ────────────────────────────────────────────────────────────
   // RENDER

@@ -11,6 +11,7 @@ import * as echarts from 'echarts';
 function EquityComparisonChart({ bots = [], equityCurves = {} }) {
   const chartRef = useRef(null);
   const chartInstance = useRef(null);
+  const dataZoomState = useRef({ start: 80, end: 100 }); // Preserve zoom state
 
   // Track which bots are visible (all visible by default)
   const [visibleBots, setVisibleBots] = useState({});
@@ -50,10 +51,14 @@ function EquityComparisonChart({ bots = [], equityCurves = {} }) {
         const equityCurve = equityCurves[bot.id] || [];
 
         // Convert to [timestamp, equity] pairs
-        const data = equityCurve.map(point => [
-          new Date(point.timestamp).getTime(),
-          parseFloat(point.equity)
-        ]);
+        // Parse UTC timestamp and convert to milliseconds (will display in local timezone)
+        const data = equityCurve.map(point => {
+          const date = new Date(point.timestamp); // Parse "2025-11-30T10:15:00Z" as UTC
+          return [
+            date.getTime(), // Milliseconds - ECharts will display in local time
+            parseFloat(point.equity)
+          ];
+        });
 
         return {
           name: bot.name,
@@ -221,6 +226,30 @@ function EquityComparisonChart({ bots = [], equityCurves = {} }) {
           }
         }
       },
+      dataZoom: [
+        {
+          type: 'inside',
+          start: dataZoomState.current.start,
+          end: dataZoomState.current.end,
+          zoomOnMouseWheel: true,
+          moveOnMouseMove: true
+        },
+        {
+          type: 'slider',
+          start: dataZoomState.current.start,
+          end: dataZoomState.current.end,
+          height: 25,
+          bottom: 10,
+          borderColor: '#475569',
+          fillerColor: 'rgba(59, 130, 246, 0.2)',
+          handleStyle: {
+            color: '#3b82f6'
+          },
+          textStyle: {
+            color: '#94a3b8'
+          }
+        }
+      ],
       series: [
         // Reference line at starting capital ($10,000)
         {
@@ -250,6 +279,17 @@ function EquityComparisonChart({ bots = [], equityCurves = {} }) {
 
     chart.setOption(option);
 
+    // Save dataZoom state when user changes zoom
+    const handleDataZoom = (params) => {
+      if (params.batch && params.batch[0]) {
+        dataZoomState.current = {
+          start: params.batch[0].start,
+          end: params.batch[0].end
+        };
+      }
+    };
+    chart.on('dataZoom', handleDataZoom);
+
     // Handle window resize
     const handleResize = () => {
       chart.resize();
@@ -257,6 +297,7 @@ function EquityComparisonChart({ bots = [], equityCurves = {} }) {
     window.addEventListener('resize', handleResize);
 
     return () => {
+      chart.off('dataZoom', handleDataZoom);
       window.removeEventListener('resize', handleResize);
     };
   }, [bots, equityCurves, visibleBots]);

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { Info, XCircle, BookOpen, X } from 'lucide-react';
 
 /**
  * AboutModal - Educational modal explaining PsiQuant's purpose and positioning
@@ -25,9 +26,7 @@ function AboutModal({ isOpen, onClose }) {
             className="text-gray-400 hover:text-gray-200 transition-colors"
             aria-label="Close modal"
           >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <X className="w-6 h-6" />
           </button>
         </div>
 
@@ -37,7 +36,7 @@ function AboutModal({ isOpen, onClose }) {
           {/* What We Do */}
           <section>
             <h3 className="text-lg font-bold text-gray-100 mb-3 flex items-center gap-2">
-              <span className="text-neon-cyan">📊</span>
+              <Info className="w-5 h-5 text-neon-cyan" />
               What is PsiQuant?
             </h3>
             <p className="text-gray-300 mb-3">
@@ -46,16 +45,20 @@ function AboutModal({ isOpen, onClose }) {
             <p className="text-gray-400 mb-2">We show you:</p>
             <ul className="space-y-2 text-gray-300 ml-4">
               <li className="flex items-start gap-2">
-                <span className="text-neon-cyan mt-1">•</span>
+                <span className="text-gray-300 mt-1">•</span>
                 <span><strong className="text-gray-100">CVD (Cumulative Volume Delta)</strong>: Real-time order flow imbalance</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-purple-400 mt-1">•</span>
-                <span><strong className="text-gray-100">Order Book Density</strong>: Liquidity distribution across price levels</span>
+                <span className="text-gray-300 mt-1">•</span>
+                <span><strong className="text-gray-100">Liquidity Density</strong>: Price levels where significant volume was required to move price, indicating potential support and resistance</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-amber-400 mt-1">•</span>
+                <span className="text-gray-300 mt-1">•</span>
                 <span><strong className="text-gray-100">Statistical Patterns</strong>: Recurring configurations in V2/V3 indicators</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-gray-300 mt-1">•</span>
+                <span><strong className="text-gray-100">Bot Leaderboard</strong>: Paper trading performance comparison across strategies</span>
               </li>
             </ul>
           </section>
@@ -63,7 +66,7 @@ function AboutModal({ isOpen, onClose }) {
           {/* What We Are NOT */}
           <section className="bg-red-500/5 border border-red-500/20 rounded-md p-4">
             <h3 className="text-lg font-bold text-red-400 mb-3 flex items-center gap-2">
-              <span>❌</span>
+              <XCircle className="w-5 h-5" />
               What We Are NOT
             </h3>
             <ul className="space-y-2 text-gray-300">
@@ -82,81 +85,17 @@ function AboutModal({ isOpen, onClose }) {
             </ul>
           </section>
 
-          {/* Data Explanation */}
-          <section>
-            <h3 className="text-lg font-bold text-gray-100 mb-3 flex items-center gap-2">
-              <span className="text-neon-cyan">🔬</span>
-              Data Transparency
-            </h3>
-            <div className="space-y-3">
-              <div>
-                <h4 className="font-bold text-gray-100 mb-1">CVD</h4>
-                <p className="text-gray-400 text-xs">
-                  Industry-standard metric. Shows net buying/selling pressure.
-                </p>
-              </div>
-              <div>
-                <h4 className="font-bold text-purple-400 mb-1">V2 (Weighted)</h4>
-                <p className="text-gray-400 text-xs">
-                  Experimental. Tracks order flow coherence with price using exponential decay (5%).
-                </p>
-              </div>
-              <div>
-                <h4 className="font-bold text-cyan-400 mb-1">V3 (Momentum)</h4>
-                <p className="text-gray-400 text-xs">
-                  Experimental. Detects divergence between cumulative flow and baseline.
-                </p>
-              </div>
-              <div className="bg-yellow-500/5 border border-yellow-500/20 rounded p-3">
-                <h4 className="font-bold text-yellow-400 mb-1">Statistical Patterns</h4>
-                <p className="text-gray-400 text-xs mb-2">
-                  Shows where V2/V3 correlated with price moves in last <strong>48 hours</strong>.
-                </p>
-                <p className="text-yellow-400 text-xs font-semibold">
-                  ⚠️ Sample sizes are small (typically 14-25 trades). NOT predictive.
-                </p>
-              </div>
-            </div>
-          </section>
-
-          {/* How to Use */}
-          <section>
-            <h3 className="text-lg font-bold text-gray-100 mb-3 flex items-center gap-2">
-              <span className="text-neon-cyan">💡</span>
-              How to Use This Tool
-            </h3>
-            <p className="text-gray-300 mb-3">
-              Use Statistical Patterns as <strong className="text-neon-cyan">context</strong>, not <strong className="text-red-400">triggers</strong>:
-            </p>
-            <ul className="space-y-2 text-gray-400 text-xs ml-4">
-              <li className="flex items-start gap-2">
-                <span className="text-gray-500 mt-0.5">→</span>
-                <span>Low sample (n&lt;30)? → High uncertainty, pattern may not persist</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-gray-500 mt-0.5">→</span>
-                <span>CI 95% wide? → Results are noisy</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-gray-500 mt-0.5">→</span>
-                <span>Mean return small? → Edge (if any) is minimal</span>
-              </li>
-            </ul>
-            <p className="text-gray-100 font-semibold mt-4 text-center bg-void-800 border border-void-600 rounded py-2">
-              This is a research tool. You decide what (if anything) to do with this data.
-            </p>
-          </section>
-
           {/* Learn More Link */}
           <section className="text-center">
-            <Link
-              to="/docs"
-              onClick={onClose}
-              className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-neon-cyan to-neon-purple text-void-950 font-semibold rounded-lg hover:opacity-90 transition-opacity"
+            <a
+              href="/docs"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-void-800 border border-void-600 text-gray-300 font-medium rounded-lg hover:bg-void-700 hover:border-void-500 transition-colors"
             >
-              <span>📚</span>
+              <BookOpen className="w-4 h-4" />
               Learn More: Full Documentation
-            </Link>
+            </a>
             <p className="text-gray-500 text-xs mt-2">Detailed explanations of CVD, LOB analysis, and bot strategies</p>
           </section>
 

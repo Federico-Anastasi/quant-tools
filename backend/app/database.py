@@ -5,13 +5,29 @@ SQLAlchemy models and session management
 
 import os
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Generator, List, Optional, Dict, Any
 
 from sqlalchemy import create_engine, Column, BigInteger, String, DECIMAL, SmallInteger, DateTime, Boolean, CHAR, Integer, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import QueuePool
+
+
+# ============================================================================
+# UTILITY FUNCTIONS
+# ============================================================================
+
+def to_utc_iso(dt):
+    """Convert datetime to ISO string with 'Z' suffix for proper timezone"""
+    if dt is None:
+        return None
+    # If datetime is naive, assume UTC and add Z
+    if dt.tzinfo is None:
+        return dt.isoformat() + 'Z'
+    # If datetime has timezone, convert to UTC and add Z
+    return dt.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z')
+
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://quant_user:quant_password_2024@localhost:5433/quant_tools")
 
@@ -100,7 +116,7 @@ class CVDCandle(Base):
 
     def to_dict(self):
         return {
-            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "timestamp": to_utc_iso(self.timestamp),
             "symbol": self.symbol,
             "price_open": float(self.price_open) if self.price_open is not None else None,
             "price_high": float(self.price_high) if self.price_high is not None else None,
@@ -196,8 +212,8 @@ class Bot(Base):
             "losing_trades": self.losing_trades,
             "max_drawdown": float(self.max_drawdown) if self.max_drawdown else None,
             "sharpe_ratio": float(self.sharpe_ratio) if self.sharpe_ratio else None,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None
+            "created_at": to_utc_iso(self.created_at),
+            "updated_at": to_utc_iso(self.updated_at)
         }
 
 
@@ -250,7 +266,7 @@ class BotTrade(Base):
             "id": self.id,
             "bot_id": self.bot_id,
             "symbol": self.symbol,
-            "entry_timestamp": self.entry_timestamp.isoformat() if self.entry_timestamp else None,
+            "entry_timestamp": to_utc_iso(self.entry_timestamp),
             "entry_price": float(self.entry_price),
             "entry_signal_v2": float(self.entry_signal_v2) if self.entry_signal_v2 else None,
             "entry_signal_v3": float(self.entry_signal_v3) if self.entry_signal_v3 else None,
@@ -262,15 +278,15 @@ class BotTrade(Base):
             "max_candles": self.max_candles,
             "tp_price": float(self.tp_price),
             "sl_price": float(self.sl_price),
-            "exit_timestamp": self.exit_timestamp.isoformat() if self.exit_timestamp else None,
+            "exit_timestamp": to_utc_iso(self.exit_timestamp),
             "exit_price": float(self.exit_price) if self.exit_price else None,
             "exit_type": self.exit_type,
             "candles_held": self.candles_held,
             "pnl": float(self.pnl) if self.pnl else None,
             "pnl_pct": float(self.pnl_pct) if self.pnl_pct else None,
             "status": self.status,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None
+            "created_at": to_utc_iso(self.created_at),
+            "updated_at": to_utc_iso(self.updated_at)
         }
 
 
@@ -294,12 +310,12 @@ class BotEquitySnapshot(Base):
         return {
             "id": self.id,
             "bot_id": self.bot_id,
-            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "timestamp": to_utc_iso(self.timestamp),
             "balance": float(self.balance),
             "equity": float(self.equity),
             "unrealized_pnl": float(self.unrealized_pnl),
             "open_positions": self.open_positions,
-            "created_at": self.created_at.isoformat() if self.created_at else None
+            "created_at": to_utc_iso(self.created_at)
         }
 
 
@@ -648,8 +664,68 @@ class DatabaseService:
             if to_time:
                 query = query.filter(BotEquitySnapshot.timestamp <= to_time)
 
-            snapshots = query.order_by(BotEquitySnapshot.timestamp.asc()).limit(limit).all()
-            return [snapshot.to_dict() for snapshot in snapshots]
+            # Get LATEST snapshots first (DESC), then reverse to ASC for chart display
+            snapshots = query.order_by(BotEquitySnapshot.timestamp.desc()).limit(limit).all()
+            # Return in chronological order (oldest to newest) for proper chart rendering
+            return [snapshot.to_dict() for snapshot in reversed(snapshots)]
+
+    @staticmethod
+    def get_bots_equity_bulk(bot_ids: List[int], from_time: Optional[datetime] = None,
+                            to_time: Optional[datetime] = None, limit_per_bot: int = 1000) -> Dict[int, List[Dict]]:
+        """
+        Get equity curves for multiple bots in ONE query (OPTIMIZED bulk fetch)
+
+        Uses window function to apply LIMIT per bot efficiently
+        Returns: Dict mapping bot_id -> List[equity_snapshots]
+        """
+        if not bot_ids:
+            return {}
+
+        with DatabaseService.get_session() as session:
+            from sqlalchemy import func
+
+            # Subquery with row_number to apply limit per bot (DESC to get LATEST snapshots)
+            subq = session.query(
+                BotEquitySnapshot.bot_id,
+                BotEquitySnapshot.timestamp,
+                BotEquitySnapshot.balance,
+                BotEquitySnapshot.equity,
+                BotEquitySnapshot.unrealized_pnl,
+                BotEquitySnapshot.open_positions,
+                func.row_number().over(
+                    partition_by=BotEquitySnapshot.bot_id,
+                    order_by=BotEquitySnapshot.timestamp.desc()
+                ).label('rn')
+            ).filter(
+                BotEquitySnapshot.bot_id.in_(bot_ids)
+            )
+
+            if from_time:
+                subq = subq.filter(BotEquitySnapshot.timestamp >= from_time)
+            if to_time:
+                subq = subq.filter(BotEquitySnapshot.timestamp <= to_time)
+
+            subq = subq.subquery()
+
+            # Filter to only first limit_per_bot rows per bot
+            results = session.query(subq).filter(subq.c.rn <= limit_per_bot).all()
+
+            # Group by bot_id
+            equity_by_bot = {bot_id: [] for bot_id in bot_ids}
+            for row in results:
+                equity_by_bot[row.bot_id].append({
+                    "timestamp": to_utc_iso(row.timestamp),
+                    "balance": float(row.balance),
+                    "equity": float(row.equity),
+                    "unrealized_pnl": float(row.unrealized_pnl),
+                    "open_positions": row.open_positions
+                })
+
+            # Sort each bot's snapshots chronologically (oldest to newest) for chart display
+            for bot_id in equity_by_bot:
+                equity_by_bot[bot_id].sort(key=lambda x: x["timestamp"])
+
+            return equity_by_bot
 
     @staticmethod
     def get_latest_equity_snapshot(bot_id: int) -> Optional[Dict]:

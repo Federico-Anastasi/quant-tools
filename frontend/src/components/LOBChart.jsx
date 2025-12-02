@@ -22,6 +22,7 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
   const chartRef = useRef(null);
   const chartInstanceRef = useRef(null);
   const dataZoomStateRef = useRef(null);  // Preserve zoom state across updates
+  const heatmapTimeoutRef = useRef(null);  // Track setTimeout for cleanup
 
   // Axis drag state for manual control (both X and Y)
   const axisStateRef = useRef({
@@ -78,14 +79,6 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
       }
     }
 
-    // DEBUG: Check timestamps format
-    console.log('[LOBChart] Timestamps debug:', {
-      total: timestamps.length,
-      first: timestamps[0],
-      last: timestamps[timestamps.length - 1],
-      sample: timestamps.slice(0, 5)
-    });
-
     // Extract LOB density data
     const {
       price_bins = [],
@@ -102,7 +95,6 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
     const vDiffData = V_diff.length > 0 ? V_diff : V_diff_smooth;
 
     if (candles.length === 0 || price_bins.length === 0 || vDiffData.length === 0) {
-      console.warn('[LOBChart] Insufficient data');
       return;
     }
 
@@ -214,15 +206,6 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
     // Use previously calculated price range
     const priceMin = visiblePriceMin;
     const priceMax = visiblePriceMax;
-
-    console.log('[LOBChart] Heatmap analysis:', {
-      p_current,
-      total_bins: price_bins.length,
-      resistance_bars: resistanceBars.length,
-      support_bars: supportBars.length,
-      max_magnitude: maxAbsVdiff.toFixed(6),
-      shared_y_range: `[${priceMin.toFixed(0)}, ${priceMax.toFixed(0)}]`
-    });
 
     // Configure ECharts option
     const option = {
@@ -352,7 +335,23 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
             show: true,
             lineStyle: { color: '#2a2e39', width: 1 }
           },
-          splitLine: { show: false }
+          splitLine: { show: false },
+          axisPointer: {
+            label: {
+              formatter: (params) => {
+                try {
+                  const date = new Date(params.value);
+                  const day = date.getDate();
+                  const month = date.toLocaleString('en', { month: 'short' });
+                  const hours = String(date.getHours()).padStart(2, '0');
+                  const minutes = String(date.getMinutes()).padStart(2, '0');
+                  return `${day} ${month} ${hours}:${minutes}`;
+                } catch {
+                  return params.value;
+                }
+              }
+            }
+          }
         },
         {
           type: 'value',
@@ -527,7 +526,6 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
       }
     } catch (e) {
       // First render, no previous option
-      console.log('[LOBChart] First render, no previous dataZoom state');
     }
 
     // Update chart with merge (not replace) to preserve interactions
@@ -545,11 +543,15 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
 
     // CANVAS HEATMAP RENDERING FUNCTION
     const renderHeatmap = () => {
+      // Check if chart is still valid (not disposed)
+      if (!chart || chart.isDisposed()) {
+        return;
+      }
+
       const chartModel = chart.getModel();
       const gridModel = chartModel.getComponent('grid', 0);
 
       if (!gridModel) {
-        console.warn('[LOBChart] Grid model not found');
         return;
       }
 
@@ -564,7 +566,7 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
       // Clear ENTIRE canvas first
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // CRITICAL: Save context and clip to grid area ONLY
+      // Save context and clip to grid area ONLY
       // This prevents heatmap from covering axis labels
       ctx.save();
       ctx.beginPath();
@@ -603,16 +605,14 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
 
       // Restore context (remove clipping)
       ctx.restore();
-
-      console.log('[LOBChart] Canvas heatmap rendered:', {
-        gridDimensions: { left: gridLeft, top: gridTop, width: gridWidth, height: gridHeight },
-        resistance_bars: resistanceBars.length,
-        support_bars: supportBars.length
-      });
     };
 
     // Initial render after ECharts finishes
-    setTimeout(renderHeatmap, 100);
+    // Clear any existing timeout first
+    if (heatmapTimeoutRef.current) {
+      clearTimeout(heatmapTimeoutRef.current);
+    }
+    heatmapTimeoutRef.current = setTimeout(renderHeatmap, 100);
 
     // Re-render heatmap on dataZoom (pan/zoom)
     chart.on('dataZoom', renderHeatmap);
@@ -942,6 +942,12 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
     window.addEventListener('resize', handleResize);
 
     return () => {
+      // Clear pending heatmap timeout
+      if (heatmapTimeoutRef.current) {
+        clearTimeout(heatmapTimeoutRef.current);
+        heatmapTimeoutRef.current = null;
+      }
+
       chart.off('dataZoom', handleDataZoomEvent);
       zr.off('mousedown', handleMouseDown);
       zr.off('mousemove', handleMouseMove);

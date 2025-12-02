@@ -25,9 +25,9 @@ function Footer({ uptime = '--' }) {
 
           {/* PsiQuant Branding */}
           <div className="flex items-center gap-1.5 text-gray-400">
-            <span className="font-bold text-neon-cyan">PsiQuant</span>
+            <span className="font-bold text-gray-100">PsiQuant</span>
             <span className="text-gray-500">v1.0</span>
-            <span className="text-gray-500">developed by</span>
+            <span className="text-gray-500">by</span>
           </div>
 
           {/* Twitter/X Link */}

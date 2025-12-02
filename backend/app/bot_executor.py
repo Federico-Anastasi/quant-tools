@@ -158,7 +158,7 @@ async def check_entry_signals(bot: Dict, candle: Dict, zones: Dict) -> Optional[
             }
 
     elif strategy_type == 'v2v3_or':
-        # V2+V3 OR: Enter when AT LEAST ONE of V2 or V3 is in zone (opposite of consensus)
+        # V2+V3 OR Conservative: Enter when AT LEAST ONE of V2 or V3 is in zone AND zones agree on direction
         if 'cumulative_v2' not in zones or 'cumulative_v3' not in zones:
             return None
 
@@ -200,6 +200,72 @@ async def check_entry_signals(bot: Dict, candle: Dict, zones: Dict) -> Optional[
                 'tp_pct': avg_tp,
                 'sl_pct': avg_sl,
                 'max_candles': avg_candles
+            }
+
+    elif strategy_type == 'v2v3_or_aggressive':
+        # V2+V3 OR Aggressive: Enter when AT LEAST ONE of V2 or V3 is in zone (NO agreement required)
+        if 'cumulative_v2' not in zones or 'cumulative_v3' not in zones:
+            return None
+
+        v2_zone = zones['cumulative_v2']
+        v3_zone = zones['cumulative_v3']
+
+        # Check ORIGINAL zones
+        v2_in_zone = v2_zone['zone_min'] <= signal_v2 <= v2_zone['zone_max']
+        v3_in_zone = v3_zone['zone_min'] <= signal_v3 <= v3_zone['zone_max']
+
+        # Check OPPOSITE zones
+        v2_in_opposite = -v2_zone['zone_max'] <= signal_v2 <= -v2_zone['zone_min']
+        v3_in_opposite = -v3_zone['zone_max'] <= signal_v3 <= -v3_zone['zone_min']
+
+        # Determine which signals are active and their directions
+        v2_signal_direction = None
+        v3_signal_direction = None
+
+        if v2_in_zone:
+            v2_signal_direction = 'LONG' if v2_zone['is_long'] else 'SHORT'
+        elif v2_in_opposite:
+            v2_signal_direction = 'SHORT' if v2_zone['is_long'] else 'LONG'
+
+        if v3_in_zone:
+            v3_signal_direction = 'LONG' if v3_zone['is_long'] else 'SHORT'
+        elif v3_in_opposite:
+            v3_signal_direction = 'SHORT' if v3_zone['is_long'] else 'LONG'
+
+        # If BOTH signals active but CONFLICTING directions → NO ENTRY (conflict)
+        if v2_signal_direction and v3_signal_direction and v2_signal_direction != v3_signal_direction:
+            return None
+
+        # If at least ONE signal active
+        if v2_signal_direction or v3_signal_direction:
+            # Determine entry direction (use agreed direction if both, or single signal direction)
+            entry_direction = v2_signal_direction if v2_signal_direction else v3_signal_direction
+
+            # Determine parameters: if both signals, use average; if only one, use its parameters
+            if v2_signal_direction and v3_signal_direction:
+                # Both signals agree
+                tp_pct = (v2_zone['tp_pct'] + v3_zone['tp_pct']) / 2
+                sl_pct = (v2_zone['sl_pct'] + v3_zone['sl_pct']) / 2
+                max_candles = int((v2_zone['max_candles'] + v3_zone['max_candles']) / 2)
+            elif v2_signal_direction:
+                # Only V2 signal
+                tp_pct = v2_zone['tp_pct']
+                sl_pct = v2_zone['sl_pct']
+                max_candles = v2_zone['max_candles']
+            else:
+                # Only V3 signal
+                tp_pct = v3_zone['tp_pct']
+                sl_pct = v3_zone['sl_pct']
+                max_candles = v3_zone['max_candles']
+
+            return {
+                'direction': entry_direction,
+                'entry_price': entry_price,
+                'signal_v2': signal_v2,
+                'signal_v3': signal_v3,
+                'tp_pct': tp_pct,
+                'sl_pct': sl_pct,
+                'max_candles': max_candles
             }
 
     return None

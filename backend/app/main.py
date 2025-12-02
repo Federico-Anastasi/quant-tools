@@ -7,7 +7,7 @@ import asyncio
 import logging
 import sys
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 
 import numpy as np
@@ -22,6 +22,15 @@ from app.cvd_pipeline import cvd_pipeline_loop
 from app.runs_pipeline import runs_pipeline_loop
 from app.zone_pipeline import zone_pipeline_loop
 from app.bot_executor import bot_execution_loop
+
+
+# ============================================================================
+# UTILITY FUNCTIONS
+# ============================================================================
+
+def utc_now_iso():
+    """Return current UTC time as ISO string with 'Z' suffix for proper timezone"""
+    return datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
 
 
 # ============================================================================
@@ -67,13 +76,32 @@ def setup_logging():
 # Initialize logging on module load
 setup_logging()
 
+# Environment detection
+ENV = os.getenv("ENV", "development")  # 'development' or 'production'
+IS_PRODUCTION = ENV == "production"
+
+# FastAPI app with conditional Swagger/OpenAPI exposure
 app = FastAPI(
     title="Quant Tools API",
     description="Real-time CVD + LOB Density Analysis",
-    version="1.0.0"
+    version="1.0.0",
+    # SECURITY: Disable API documentation in production
+    docs_url=None if IS_PRODUCTION else "/docs",
+    redoc_url=None if IS_PRODUCTION else "/redoc",
+    openapi_url=None if IS_PRODUCTION else "/openapi.json"
 )
 
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:8080").split(",")
+# CORS Configuration - Strict in production, permissive in development
+if IS_PRODUCTION:
+    # PRODUCTION: Only allow your frontend domain
+    ALLOWED_FRONTEND = os.getenv("FRONTEND_URL", "https://psiquant.com")
+    CORS_ORIGINS = [ALLOWED_FRONTEND]
+    logging.info(f"[CORS] PRODUCTION mode - Allowing only: {CORS_ORIGINS}")
+else:
+    # DEVELOPMENT: Allow localhost for local development
+    CORS_ORIGINS = ["http://localhost:3000", "http://localhost:8080", "http://localhost:8082"]
+    logging.info(f"[CORS] DEVELOPMENT mode - Allowing: {CORS_ORIGINS}")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -182,7 +210,7 @@ async def get_candles(
     candles = DatabaseService.get_candles(symbol=symbol, limit=limit, hours=hours)
 
     return CandlesResponse(
-        timestamp=datetime.utcnow().isoformat(),
+        timestamp=utc_now_iso(),
         symbol=symbol,
         total_candles=len(candles),
         candles=candles
@@ -281,7 +309,7 @@ async def get_lob_density(
     V_diff_smooth = gaussian_filter1d(V_diff, sigma=2)
 
     return LOBDensityResponse(
-        timestamp=t0_dt.isoformat(),
+        timestamp=t0_dt.isoformat().replace('+00:00', 'Z') if '+00:00' in t0_dt.isoformat() else t0_dt.isoformat() + 'Z',
         symbol=symbol,
         p_current=p_current,
         price_bins=price_bins,
@@ -310,7 +338,7 @@ async def get_order_flow_zones(symbol: str = Query("BTC")):
     zones = DatabaseService.get_latest_zones(symbol)
 
     return OrderFlowZonesResponse(
-        timestamp=datetime.utcnow().isoformat(),
+        timestamp=utc_now_iso(),
         symbol=symbol,
         cumulative_v2=zones.get('cumulative_v2'),
         cumulative_v3=zones.get('cumulative_v3')
@@ -366,6 +394,9 @@ async def get_bots():
             bot['allocated_capital'] = capital_allocated
             bot['has_open_position'] = True
             bot['position_direction'] = direction  # LONG or SHORT
+            bot['entry_price'] = entry_price
+            bot['take_profit_price'] = float(open_trade['tp_price'])
+            bot['stop_loss_price'] = float(open_trade['sl_price'])
         else:
             # No open position - equity = balance
             bot['current_equity'] = float(bot['current_balance'])
@@ -378,7 +409,7 @@ async def get_bots():
         bot['total_fees_paid'] = total_fees_paid
 
     return {
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": utc_now_iso(),
         "bots": bots
     }
 
@@ -416,7 +447,7 @@ async def get_leaderboard(
         })
 
     return {
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": utc_now_iso(),
         "sort_by": sort_by,
         "order": order,
         "leaderboard": leaderboard
@@ -430,7 +461,7 @@ async def get_bot(bot_id: int):
     if not bot:
         return {"error": "Bot not found"}, 404
     return {
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": utc_now_iso(),
         "bot": bot
     }
 
@@ -471,7 +502,7 @@ async def get_bot_trades(
     """Get bot trades with optional status filter"""
     trades = DatabaseService.get_bot_trades(bot_id, status=status, limit=limit)
     return {
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": utc_now_iso(),
         "bot_id": bot_id,
         "total_trades": len(trades),
         "trades": trades
@@ -492,19 +523,89 @@ async def get_bot_equity(
     snapshots = DatabaseService.get_bot_equity(bot_id, from_time=from_dt, to_time=to_dt, limit=limit)
 
     return {
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": utc_now_iso(),
         "bot_id": bot_id,
         "total_snapshots": len(snapshots),
         "snapshots": snapshots
     }
 
 
+class BulkEquityRequest(BaseModel):
+    """Request model for bulk equity endpoint"""
+    bot_ids: List[int]
+    from_time: Optional[str] = None
+    to_time: Optional[str] = None
+
+
+@app.post("/api/bots/equity-bulk")
+async def get_bots_equity_bulk(
+    request: BulkEquityRequest,
+    limit: int = Query(1000, ge=1, le=10000)
+):
+    """
+    Get equity curves for multiple bots in ONE query (OPTIMIZED bulk endpoint)
+
+    This eliminates N+1 HTTP request pattern by fetching all bot equity curves in a single database query.
+    Uses window function to efficiently apply per-bot LIMIT.
+
+    Body:
+    {
+      "bot_ids": [5, 6, 7, 8],
+      "from_time": "2025-11-01T00:00:00",  // optional
+      "to_time": "2025-11-30T23:59:59"     // optional
+    }
+
+    Response:
+    {
+      "timestamp": "2025-12-01T10:00:00",
+      "bot_count": 4,
+      "data": {
+        "5": [{"timestamp": "...", "equity": 10500, ...}, ...],
+        "6": [{"timestamp": "...", "equity": 10300, ...}, ...],
+        ...
+      }
+    }
+    """
+    import time
+    start_total = time.time()
+
+    if not request.bot_ids:
+        return {"error": "At least one bot_id is required"}, 400
+
+    if len(request.bot_ids) > 20:
+        return {"error": "Maximum 20 bots per request"}, 400
+
+    from_dt = datetime.fromisoformat(request.from_time) if request.from_time else None
+    to_dt = datetime.fromisoformat(request.to_time) if request.to_time else None
+
+    start_db = time.time()
+    results = DatabaseService.get_bots_equity_bulk(
+        request.bot_ids,
+        from_time=from_dt,
+        to_time=to_dt,
+        limit_per_bot=limit
+    )
+    db_time = (time.time() - start_db) * 1000
+
+    start_response = time.time()
+    response_data = {
+        "timestamp": utc_now_iso(),
+        "bot_count": len(request.bot_ids),
+        "data": results
+    }
+    response_time = (time.time() - start_response) * 1000
+    total_time = (time.time() - start_total) * 1000
+
+    print(f"[BULK EQUITY] DB query: {db_time:.0f}ms | Response build: {response_time:.0f}ms | Total: {total_time:.0f}ms | Bots: {len(request.bot_ids)} | Limit: {limit}")
+
+    return response_data
+
+
 @app.get("/")
 async def root():
-    return {
+    response = {
         "service": "Quant Tools API",
         "version": "1.0.0",
-        "docs": "/docs",
         "endpoints": {
             "health": "/health",
             "candles": "/api/candles",
@@ -514,3 +615,9 @@ async def root():
             "leaderboard": "/api/bots/leaderboard"
         }
     }
+
+    # Only expose docs link in development
+    if not IS_PRODUCTION:
+        response["docs"] = "/docs"
+
+    return response

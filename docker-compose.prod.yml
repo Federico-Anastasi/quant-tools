@@ -30,9 +30,12 @@ services:
       db:
         condition: service_healthy
     environment:
+      # PRODUCTION MODE: Disables /docs and enforces strict CORS
+      ENV: production
       DATABASE_URL: postgresql://quant_user:${POSTGRES_PASSWORD}@db:5432/quant_tools
       WS_URL: wss://api.hyperliquid.xyz/ws
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      # Your production frontend domain (set in .env file)
+      FRONTEND_URL: ${FRONTEND_URL}
     networks:
       - quant_network
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2

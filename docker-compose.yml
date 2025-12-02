@@ -32,14 +32,15 @@ services:
       db:
         condition: service_healthy
     environment:
+      # DEVELOPMENT MODE: Enables /docs endpoint and allows localhost CORS
+      ENV: development
       DATABASE_URL: postgresql://quant_user:quant_password_2024@db:5432/quant_tools
       WS_URL: wss://api.hyperliquid.xyz/ws
-      CORS_ORIGINS: http://localhost:3000,http://localhost:8080
     volumes:
       - ./backend:/app
     ports:
       - "8002:8000"  # Backend API on port 8002
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s

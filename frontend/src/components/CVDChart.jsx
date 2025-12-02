@@ -154,7 +154,6 @@ const CVDChart = ({ data, zonesData }) => {
 
             return badgeSize;
         } catch (e) {
-            console.warn('[BADGE] Size calculation error:', e);
             return 24; // Fallback
         }
     };
@@ -489,7 +488,6 @@ const CVDChart = ({ data, zonesData }) => {
                 stateRef.current.yAxisState[axisIndex].auto = true;
                 stateRef.current.yAxisState[axisIndex].min = null;
                 stateRef.current.yAxisState[axisIndex].max = null;
-                console.log(`[AXIS] Reset Axis ${axisIndex}`);
                 if (stateRef.current.rawData) {
                     updateChart(stateRef.current.rawData);
                     handleSmartScaling(); // Re-apply smart scaling immediately
@@ -580,8 +578,6 @@ const CVDChart = ({ data, zonesData }) => {
 
     const initializeChart = () => {
         if (!chartRef.current) return;
-
-        console.log('[CVDChart] Initializing ECharts (Zero-Friction Mode)');
 
         chartInstanceRef.current = echarts.init(chartRef.current, null, {
             renderer: 'canvas',
@@ -692,7 +688,23 @@ const CVDChart = ({ data, zonesData }) => {
                 },
                 axisTick: { show: i === 4, lineStyle: { color: '#454d5f' } },
                 splitLine: { show: false },
-                axisPointer: { label: { show: i === 4 } }
+                axisPointer: {
+                    label: {
+                        show: i === 4,
+                        formatter: (params) => {
+                            try {
+                                const date = new Date(params.value);
+                                const day = date.getDate();
+                                const month = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][date.getMonth()];
+                                const hours = String(date.getHours()).padStart(2, '0');
+                                const minutes = String(date.getMinutes()).padStart(2, '0');
+                                return `${day} ${month} ${hours}:${minutes}`;
+                            } catch {
+                                return params.value;
+                            }
+                        }
+                    }
+                }
             })),
 
             yAxis: [
