@@ -38,7 +38,7 @@ services:
       FRONTEND_URL: ${FRONTEND_URL}
     networks:
       - quant_network
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
