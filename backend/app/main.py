@@ -163,14 +163,29 @@ async def startup_event():
     if not check_db_health():
         logger.warning("Database health check failed")
 
-    # Start background tasks
-    asyncio.create_task(start_collector())
-    asyncio.create_task(cvd_pipeline_loop())
-    asyncio.create_task(runs_pipeline_loop())
-    asyncio.create_task(zone_pipeline_loop())
-    asyncio.create_task(bot_execution_loop())
+    # MULTI-WORKER SAFETY: Only start background tasks in PRIMARY worker
+    # When using --workers N, each worker runs startup_event()
+    # We check WORKER_ID environment variable to ensure only worker 0 starts pipelines
+    # This prevents duplicate bot executors, duplicate WebSocket collectors, etc.
+    worker_id = os.environ.get('WORKER_ID', '0')
 
-    logger.info("All pipelines started (WebSocket, CVD, Runs, Zone, Bot Executor)")
+    if worker_id == '0':
+        logger.info("[WORKER 0] Starting background pipelines (PRIMARY worker)")
+
+        # Pre-populate LOB cache on startup
+        from app.lob_calculator import calculate_and_cache_lob_density
+        asyncio.create_task(calculate_and_cache_lob_density(symbol='BTC'))
+
+        # Start background tasks
+        asyncio.create_task(start_collector())
+        asyncio.create_task(cvd_pipeline_loop())
+        asyncio.create_task(runs_pipeline_loop())
+        asyncio.create_task(zone_pipeline_loop())
+        asyncio.create_task(bot_execution_loop())
+
+        logger.info("[WORKER 0] All pipelines started (WebSocket, CVD, Runs, Zone, Bot Executor)")
+    else:
+        logger.info(f"[WORKER {worker_id}] HTTP-only worker (background tasks disabled)")
 
 
 # ============================================================================
@@ -220,20 +235,52 @@ async def get_candles(
 @app.get("/api/lob-density", response_model=LOBDensityResponse)
 async def get_lob_density(
     symbol: str = Query("BTC"),
-    hours: int = Query(720, ge=1, le=720),  # Default 720h (30 days) to use all available data
-    price_bin: int = Query(50, ge=20, le=500),  # Default 50 USD bins for smooth profile
+    hours: int = Query(720, ge=1, le=720),  # Default 720h (30 days) - kept for API compatibility
+    price_bin: int = Query(50, ge=20, le=500),  # Default 50 USD bins - kept for API compatibility
     t0: Optional[str] = Query(None, description="Snapshot timestamp (ISO format)")
 ):
-    """Get LOB density heatmap data - uses all available runs from database"""
+    """
+    Get LOB density heatmap data - OPTIMIZED with cache
 
-    # Parse t0
+    Data is pre-calculated every 3 minutes when CVD pipeline finalizes a candle.
+    Serves from in-memory cache (~1ms response time) for 99% of requests.
+
+    Cache is updated automatically by cvd_pipeline.py after each finalized candle.
+    On cache miss (first request after restart), falls back to real-time calculation.
+    """
+    from app.lob_cache import lob_cache
+
+    # OPTIMIZATION: Try cache first (most requests hit this path)
+    # Cache is populated by cvd_pipeline.py every 3 minutes with default parameters
+    # Only use cache if parameters match (hours=720, price_bin=50, t0=None)
+    if not t0:  # Only use cache for "current" requests (no custom t0)
+        cached = lob_cache.get(symbol, hours=hours, price_bin=price_bin)
+
+        if cached:
+            # Cache hit - return immediately (<1ms)
+            return LOBDensityResponse(
+                timestamp=cached['timestamp'],
+                symbol=cached['symbol'],
+                p_current=cached['p_current'],
+                price_bins=cached['price_bins'],
+                V_up=cached['V_up'],
+                V_down=cached['V_down'],
+                V_diff=cached['V_diff'],
+                V_diff_smooth=cached['V_diff_smooth']
+            )
+
+    # FALLBACK: Cache miss or custom t0 parameter - calculate on-demand
+    # This preserves original behavior for custom queries and first request after restart
+    logger.info(f"[LOB] Cache miss for {symbol} (t0={t0}) - calculating on-demand")
+
+    # Parse t0 (ORIGINAL LOGIC PRESERVED)
     from datetime import timezone
     if t0:
         t0_dt = datetime.fromisoformat(t0)
     else:
         t0_dt = datetime.now(timezone.utc)
 
-    # Get runs before t0
+    # Get runs before t0 (ORIGINAL LOGIC PRESERVED)
     from_time = t0_dt - timedelta(hours=hours)
 
     from app.database import DatabaseService, Run
@@ -244,14 +291,14 @@ async def get_lob_density(
             Run.t_end >= from_time
         ).all()
 
-        # Get current price at t0
+        # Get current price at t0 (ORIGINAL LOGIC PRESERVED)
         last_candle = DatabaseService.get_last_finalized_candle(symbol)
         if last_candle:
             p_current = last_candle['price_close']
         else:
             p_current = 100000.0
 
-        # Price range (extract all data while in session)
+        # Price range (extract all data while in session) (ORIGINAL LOGIC PRESERVED)
         all_prices = [float(r.price_mid) for r in runs]
         runs_data = [{
             'dir': r.dir,
@@ -267,10 +314,10 @@ async def get_lob_density(
             p_min = p_current - 10000
             p_max = p_current + 10000
 
-    # Create bins (outside session)
+    # Create bins (outside session) (ORIGINAL LOGIC PRESERVED)
     price_bins = list(np.arange(p_min, p_max, price_bin))
 
-    # Compute V_eff profiles with time decay
+    # Compute V_eff profiles with time decay (ORIGINAL LOGIC PRESERVED)
     lambda_decay = np.log(2) / (2 * 3600)
     V_up_profile = []
     V_down_profile = []
@@ -279,7 +326,7 @@ async def get_lob_density(
     runs_down = [r for r in runs_data if r['dir'] == 'down']
 
     for p in price_bins:
-        # V_up
+        # V_up (ORIGINAL LOGIC PRESERVED)
         runs_at_p = [r for r in runs_up if
                      ((r['price_start'] <= p <= r['price_end']) or (r['price_start'] >= p >= r['price_end']))]
 
@@ -290,7 +337,7 @@ async def get_lob_density(
         else:
             V_up_profile.append(0.0)
 
-        # V_down
+        # V_down (ORIGINAL LOGIC PRESERVED)
         runs_at_p = [r for r in runs_down if
                      ((r['price_start'] <= p <= r['price_end']) or (r['price_start'] >= p >= r['price_end']))]
 
@@ -305,7 +352,7 @@ async def get_lob_density(
     V_down_arr = np.array(V_down_profile)
     V_diff = V_down_arr - V_up_arr
 
-    # Smooth
+    # Smooth (ORIGINAL LOGIC PRESERVED)
     V_diff_smooth = gaussian_filter1d(V_diff, sigma=2)
 
     return LOBDensityResponse(
@@ -466,33 +513,6 @@ async def get_bot(bot_id: int):
     }
 
 
-@app.post("/api/bots/{bot_id}/start")
-async def start_bot(bot_id: int):
-    """Start bot execution (set status='active')"""
-    success = DatabaseService.update_bot_status(bot_id, 'active')
-    if not success:
-        return {"error": "Bot not found"}, 404
-    return {"status": "success", "message": f"Bot {bot_id} started"}
-
-
-@app.post("/api/bots/{bot_id}/pause")
-async def pause_bot(bot_id: int):
-    """Pause bot (set status='paused')"""
-    success = DatabaseService.update_bot_status(bot_id, 'paused')
-    if not success:
-        return {"error": "Bot not found"}, 404
-    return {"status": "success", "message": f"Bot {bot_id} paused"}
-
-
-@app.post("/api/bots/{bot_id}/stop")
-async def stop_bot(bot_id: int):
-    """Stop bot permanently (set status='stopped')"""
-    success = DatabaseService.update_bot_status(bot_id, 'stopped')
-    if not success:
-        return {"error": "Bot not found"}, 404
-    return {"status": "success", "message": f"Bot {bot_id} stopped"}
-
-
 @app.get("/api/bots/{bot_id}/trades")
 async def get_bot_trades(
     bot_id: int,
@@ -506,27 +526,6 @@ async def get_bot_trades(
         "bot_id": bot_id,
         "total_trades": len(trades),
         "trades": trades
-    }
-
-
-@app.get("/api/bots/{bot_id}/equity")
-async def get_bot_equity(
-    bot_id: int,
-    from_time: Optional[str] = Query(None, description="Start time (ISO format)"),
-    to_time: Optional[str] = Query(None, description="End time (ISO format)"),
-    limit: int = Query(1000, ge=1, le=10000)
-):
-    """Get bot equity curve data"""
-    from_dt = datetime.fromisoformat(from_time) if from_time else None
-    to_dt = datetime.fromisoformat(to_time) if to_time else None
-
-    snapshots = DatabaseService.get_bot_equity(bot_id, from_time=from_dt, to_time=to_dt, limit=limit)
-
-    return {
-        "timestamp": utc_now_iso(),
-        "bot_id": bot_id,
-        "total_snapshots": len(snapshots),
-        "snapshots": snapshots
     }
 
 
@@ -604,7 +603,7 @@ async def get_bots_equity_bulk(
 @app.get("/")
 async def root():
     response = {
-        "service": "Quant Tools API",
+        "service": "PsiQuant API",
         "version": "1.0.0",
         "endpoints": {
             "health": "/health",

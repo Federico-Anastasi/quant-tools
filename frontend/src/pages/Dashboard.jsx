@@ -38,7 +38,7 @@ export default function Dashboard() {
     last_update: '--'
   })
   const [uptime, setUptime] = useState('--')
-  const [priceBin, setPriceBin] = useState(50)  // LOB bin size control
+  const [priceBin, setPriceBin] = useState(50)  // LOB bin size (fixed at 50 for cache optimization)
 
   const startTimeRef = useRef(Date.now())
   const lastUpdateRef = useRef(Date.now())
@@ -461,17 +461,6 @@ export default function Dashboard() {
       fetchLOBDensity()
     }
   }, [activeTab])
-
-  // Re-fetch LOB density only when priceBin changes (debounced)
-  useEffect(() => {
-    if (activeTab === 'lob' && lobData) {
-      // Debounce: wait 300ms after user stops adjusting slider
-      const timeout = setTimeout(() => {
-        fetchLOBDensity()
-      }, 300)
-      return () => clearTimeout(timeout)
-    }
-  }, [priceBin])
 
   // ────────────────────────────────────────────────────────────
   // RENDER

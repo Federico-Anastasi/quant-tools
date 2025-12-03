@@ -44,18 +44,6 @@ function BotsTab() {
     }
   };
 
-  // Fetch equity curve for a bot (returns data instead of setState)
-  const fetchEquityCurve = async (botId) => {
-    try {
-      const response = await axios.get(`${API_URL}/api/bots/${botId}/equity?limit=10000`);
-      return { id: botId, data: response.data.snapshots || [], error: null };
-
-    } catch (err) {
-      console.error(`[BotsTab] Error fetching equity for bot ${botId}:`, err);
-      return { id: botId, data: [], error: err.message };
-    }
-  };
-
   // Fetch trade history for a bot
   const fetchBotTrades = async (botId) => {
     try {
@@ -113,19 +101,7 @@ function BotsTab() {
         setEquityCurves(prev => ({ ...prev, ...response.data.data }));
 
       } catch (err) {
-        console.error('[BotsTab] Error fetching bulk equity, falling back to individual calls:', err);
-
-        // Fallback to individual parallel calls if bulk fails
-        const results = await Promise.all(
-          botIds.map(id => fetchEquityCurve(id))
-        );
-
-        const newCurves = {};
-        results.forEach(({ id, data }) => {
-          newCurves[id] = data;
-        });
-
-        setEquityCurves(prev => ({ ...prev, ...newCurves }));
+        console.error('[BotsTab] Error fetching bulk equity curves:', err);
       }
     };
 

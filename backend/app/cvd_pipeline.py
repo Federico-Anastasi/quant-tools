@@ -136,6 +136,11 @@ async def process_candles():
             DatabaseService.upsert_candle(candle_data)
             print(f"[CVD] Finalized candle {candle_start} | signal={metrics['signal']} | v1={cumulative_v1:.1f} | cvd={metrics['cvd_ohlc']['close']:.2f}", flush=True)
 
+            # OPTIMIZATION: Trigger LOB density calculation after candle finalization
+            # This pre-computes expensive LOB density data for /api/lob-density endpoint
+            from app.lob_calculator import calculate_and_cache_lob_density
+            await calculate_and_cache_lob_density(symbol='BTC')
+
             # Update last_finalized AND last_cvd_close for next candle in loop (maintain continuity)
             last_finalized = {
                 'cumulative_v1': cumulative_v1,

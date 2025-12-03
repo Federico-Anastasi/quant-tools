@@ -550,17 +550,6 @@ class DatabaseService:
             return bot.to_dict() if bot else None
 
     @staticmethod
-    def update_bot_status(bot_id: int, status: str) -> bool:
-        """Update bot status (active, paused, stopped)"""
-        with DatabaseService.get_session() as session:
-            bot = session.query(Bot).filter(Bot.id == bot_id).first()
-            if not bot:
-                return False
-            bot.status = status
-            bot.updated_at = datetime.utcnow()
-            return True
-
-    @staticmethod
     def update_bot_metrics(bot_id: int, metrics: Dict) -> bool:
         """Update bot performance metrics"""
         with DatabaseService.get_session() as session:
@@ -649,25 +638,6 @@ class DatabaseService:
             session.add(snapshot)
             session.flush()
             return snapshot.id
-
-    @staticmethod
-    def get_bot_equity(bot_id: int, from_time: Optional[datetime] = None,
-                      to_time: Optional[datetime] = None, limit: int = 1000) -> List[Dict]:
-        """Get bot equity curve data with optional time range"""
-        with DatabaseService.get_session() as session:
-            query = session.query(BotEquitySnapshot).filter(
-                BotEquitySnapshot.bot_id == bot_id
-            )
-
-            if from_time:
-                query = query.filter(BotEquitySnapshot.timestamp >= from_time)
-            if to_time:
-                query = query.filter(BotEquitySnapshot.timestamp <= to_time)
-
-            # Get LATEST snapshots first (DESC), then reverse to ASC for chart display
-            snapshots = query.order_by(BotEquitySnapshot.timestamp.desc()).limit(limit).all()
-            # Return in chronological order (oldest to newest) for proper chart rendering
-            return [snapshot.to_dict() for snapshot in reversed(snapshots)]
 
     @staticmethod
     def get_bots_equity_bulk(bot_ids: List[int], from_time: Optional[datetime] = None,

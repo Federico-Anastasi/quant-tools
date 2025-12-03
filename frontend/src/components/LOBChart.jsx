@@ -960,7 +960,7 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
 
   return (
     <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
-      {/* Controls Bar - Responsive */}
+      {/* Controls Bar - DISABLED: Price bin fixed at $50 for cache optimization */}
       <div style={{
         padding: '6px 8px',
         backgroundColor: '#0b0e11',
@@ -980,13 +980,15 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
           step="10"
           value={priceBin}
           onChange={(e) => onPriceBinChange(parseInt(e.target.value))}
+          disabled={true}
           style={{
             flex: '1 1 120px',
             minWidth: '120px',
             maxWidth: '200px',
             accentColor: '#00f0ff',
-            cursor: 'pointer',
-            height: '24px'  // Larger touch target
+            cursor: 'not-allowed',
+            height: '24px',
+            opacity: 0.4
           }}
         />
         <span style={{ fontSize: '11px', color: '#00f0ff', fontFamily: 'monospace', fontWeight: 'bold' }}>
