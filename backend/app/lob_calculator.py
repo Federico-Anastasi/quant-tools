@@ -132,7 +132,8 @@ def _calculate_lob_sync(
         'V_up': V_up_profile.tolist(),
         'V_down': V_down_profile.tolist(),
         'V_diff': V_diff.tolist(),
-        'V_diff_smooth': V_diff_smooth.tolist()
+        'V_diff_smooth': V_diff_smooth.tolist(),
+        'n_runs': n_runs  # Total runs used in calculation
     }
 
     return lob_data
@@ -173,9 +174,9 @@ async def calculate_and_cache_lob_density(
         # Store in cache
         lob_cache.set(symbol, lob_data, hours=hours, price_bin=price_bin)
 
-        # Extract bin count from result
+        # Extract metrics from result
         n_bins = len(lob_data['price_bins'])
-        n_runs = len(lob_data['V_up']) + len(lob_data['V_down'])  # Approximate
+        n_runs = lob_data['n_runs']
 
         logger.info(f"[LOB] Calculated and cached density for {symbol} | bins={n_bins} | runs={n_runs}")
 
