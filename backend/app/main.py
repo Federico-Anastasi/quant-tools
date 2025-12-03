@@ -94,7 +94,7 @@ app = FastAPI(
 # CORS Configuration - Strict in production, permissive in development
 if IS_PRODUCTION:
     # PRODUCTION: Only allow your frontend domain
-    ALLOWED_FRONTEND = os.getenv("FRONTEND_URL", "https://psiquant.com")
+    ALLOWED_FRONTEND = os.getenv("FRONTEND_URL", "https://psiquant.xyz")
     CORS_ORIGINS = [ALLOWED_FRONTEND]
     logging.info(f"[CORS] PRODUCTION mode - Allowing only: {CORS_ORIGINS}")
 else:
