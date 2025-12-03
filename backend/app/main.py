@@ -172,16 +172,15 @@ async def startup_event():
     if worker_id == '0':
         logger.info("[WORKER 0] Starting background pipelines (PRIMARY worker)")
 
-        # Pre-populate LOB cache on startup
-        from app.lob_calculator import calculate_and_cache_lob_density
-        asyncio.create_task(calculate_and_cache_lob_density(symbol='BTC'))
-
         # Start background tasks
         asyncio.create_task(start_collector())
         asyncio.create_task(cvd_pipeline_loop())
         asyncio.create_task(runs_pipeline_loop())
         asyncio.create_task(zone_pipeline_loop())
         asyncio.create_task(bot_execution_loop())
+
+        # NOTE: LOB cache will be populated by CVD pipeline after first finalized candle (~3min)
+        # We removed pre-population at startup to avoid blocking the worker during initialization
 
         logger.info("[WORKER 0] All pipelines started (WebSocket, CVD, Runs, Zone, Bot Executor)")
     else:
