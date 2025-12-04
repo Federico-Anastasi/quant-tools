@@ -66,12 +66,12 @@
 ```bash
 cd c:/Users/Mango/Desktop/Dev_FA/mangolabs/papers/quant_tools
 
-# Stop old monolithic container (if running)
+# Stop old containers (if running)
 docker-compose down
 
 # Build and start new multi-container architecture
-docker-compose -f docker-compose.multicontainer.yml build
-docker-compose -f docker-compose.multicontainer.yml up -d
+docker-compose build
+docker-compose up -d
 ```
 
 ### 2. Verify All Containers Running
@@ -294,10 +294,13 @@ docker exec quant_tools_db psql -U quant_user -d quant_tools \
 ## Rollback (if needed)
 
 ```bash
-# Stop multi-container setup
-docker-compose -f docker-compose.multicontainer.yml down
+# Stop new architecture
+docker-compose down
 
-# Restart old monolithic setup
+# Restore old monolithic docker-compose
+mv docker-compose.yml.old docker-compose.yml
+
+# Start old setup
 docker-compose up -d
 ```
 
