@@ -163,28 +163,43 @@ async def startup_event():
     if not check_db_health():
         logger.warning("Database health check failed")
 
-    # MULTI-WORKER SAFETY: Only start background tasks in PRIMARY worker
-    # When using --workers N, each worker runs startup_event()
-    # We check WORKER_ID environment variable to ensure only worker 0 starts pipelines
-    # This prevents duplicate bot executors, duplicate WebSocket collectors, etc.
-    worker_id = os.environ.get('WORKER_ID', '0')
+    # MULTI-CONTAINER ARCHITECTURE: Check container mode
+    # Modes:
+    # - "api": API-only container (no background tasks)
+    # - "realtime": Real-Time container (WebSocket + CVD + Runs + Bot Executor)
+    # - "compute": Compute container (Zone + LOB Subscriber)
+    # - "monolith" (default): All-in-one (legacy mode for development)
+    container_mode = os.environ.get('CONTAINER_MODE', 'monolith')
 
-    if worker_id == '0':
-        logger.info("[WORKER 0] Starting background pipelines (PRIMARY worker)")
+    if container_mode == 'api':
+        logger.info("[API MODE] Starting API-only container (no background tasks)")
+        print("[API MODE] HTTP endpoints only - background pipelines disabled", flush=True)
+        return  # Skip all background task startup
 
-        # Start background tasks
-        asyncio.create_task(start_collector())
-        asyncio.create_task(cvd_pipeline_loop())
-        asyncio.create_task(runs_pipeline_loop())
-        asyncio.create_task(zone_pipeline_loop())
-        asyncio.create_task(bot_execution_loop())
+    elif container_mode == 'monolith':
+        # LEGACY MODE: For local development and backward compatibility
+        # MULTI-WORKER SAFETY: Only start background tasks in PRIMARY worker
+        worker_id = os.environ.get('WORKER_ID', '0')
 
-        # NOTE: LOB cache will be populated by CVD pipeline after first finalized candle (~3min)
-        # We removed pre-population at startup to avoid blocking the worker during initialization
+        if worker_id == '0':
+            logger.info("[WORKER 0] Starting background pipelines (MONOLITH mode)")
 
-        logger.info("[WORKER 0] All pipelines started (WebSocket, CVD, Runs, Zone, Bot Executor)")
+            # Start background tasks
+            asyncio.create_task(start_collector())
+            asyncio.create_task(cvd_pipeline_loop())
+            asyncio.create_task(runs_pipeline_loop())
+            asyncio.create_task(zone_pipeline_loop())
+            asyncio.create_task(bot_execution_loop())
+
+            logger.info("[WORKER 0] All pipelines started (WebSocket, CVD, Runs, Zone, Bot Executor)")
+        else:
+            logger.info(f"[WORKER {worker_id}] HTTP-only worker (background tasks disabled)")
+
     else:
-        logger.info(f"[WORKER {worker_id}] HTTP-only worker (background tasks disabled)")
+        # REALTIME and COMPUTE modes use dedicated entry points (main_realtime.py, main_compute.py)
+        # This code path should not execute for those modes
+        logger.warning(f"[STARTUP] Unknown CONTAINER_MODE: {container_mode} - running in API-only mode")
+        return
 
 
 # ============================================================================

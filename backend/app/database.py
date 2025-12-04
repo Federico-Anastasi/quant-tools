@@ -34,9 +34,10 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://quant_user:quant_password
 engine = create_engine(
     DATABASE_URL,
     poolclass=QueuePool,
-    pool_size=10,
-    max_overflow=20,
-    pool_pre_ping=True,
+    pool_size=12,           # Reduced for 4 containers (12 per container)
+    max_overflow=13,        # Max 25 total per container (4×25=100 < 200 max_connections)
+    pool_recycle=3600,      # Recycle connections hourly (best practice)
+    pool_pre_ping=True,     # Health check before using connection
     echo=False
 )
 

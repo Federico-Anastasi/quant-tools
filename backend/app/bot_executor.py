@@ -574,8 +574,29 @@ async def bot_execution_loop():
         4. If no open position, check entry signals
         5. Enter position if signal detected
         6. Snapshot equity (every 3min at candle finalization)
+
+    SINGLETON ENFORCEMENT:
+    - Acquires Redis lock on startup (prevents duplicate executors)
+    - Renews lock every 5 seconds
+    - Exits if lock is lost (another container took over)
     """
-    logger.info("[BOT EXECUTOR] Starting bot execution loop...")
+    import uuid
+    from app.redis_service import RedisService
+
+    # Generate unique container ID
+    container_id = str(uuid.uuid4())
+
+    # Acquire bot executor lock (SINGLETON enforcement)
+    if not RedisService.acquire_bot_executor_lock(container_id):
+        logger.warning("[BOT EXECUTOR] Another instance is already running. Exiting.")
+        print("[BOT EXECUTOR] Another instance is running. Exiting.", flush=True)
+        return
+
+    logger.info(f"[BOT EXECUTOR] Lock acquired (container_id={container_id})")
+    print(f"[BOT EXECUTOR] Lock acquired (container_id={container_id})", flush=True)
+
+    # Track lock renewal timestamp
+    last_lock_renewal = asyncio.get_event_loop().time()
 
     # Track candles held for each open trade
     candles_held_tracker = {}  # trade_id -> candles_held
@@ -601,6 +622,16 @@ async def bot_execution_loop():
     while True:
         try:
             await asyncio.sleep(5)
+
+            # Renew bot executor lock every 5 seconds
+            current_time = asyncio.get_event_loop().time()
+            if current_time - last_lock_renewal >= 5:
+                if not RedisService.renew_bot_executor_lock(container_id):
+                    logger.error("[BOT EXECUTOR] Lost lock ownership. Exiting.")
+                    print("[BOT EXECUTOR] Lost lock ownership. Exiting.", flush=True)
+                    break
+                last_lock_renewal = current_time
+                logger.debug(f"[BOT EXECUTOR] Lock renewed (container_id={container_id})")
 
             # Get latest finalized candle
             candle = DatabaseService.get_last_finalized_candle()
