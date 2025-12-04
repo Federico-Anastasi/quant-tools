@@ -58,6 +58,7 @@ class Trade(Base):
     price = Column(DECIMAL(12, 2), nullable=False)
     size = Column(DECIMAL(12, 6), nullable=False)
     side = Column(CHAR(1), nullable=False)
+    trade_id = Column(BigInteger, unique=True)  # Hyperliquid unique trade ID
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
 
@@ -347,6 +348,8 @@ class DatabaseService:
         with DatabaseService.get_session() as session:
             from sqlalchemy.dialects.postgresql import insert
             stmt = insert(Trade).values(trades)
+            # Ignore duplicates by trade_id (Hyperliquid unique identifier)
+            stmt = stmt.on_conflict_do_nothing(index_elements=['trade_id'])
             result = session.execute(stmt)
             return result.rowcount
 

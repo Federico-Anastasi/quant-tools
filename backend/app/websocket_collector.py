@@ -36,13 +36,14 @@ async def on_message(msg: str):
                 "symbol": COIN,
                 "price": float(t["px"]),
                 "size": float(t["sz"]),
-                "side": t["side"]
+                "side": t["side"],
+                "trade_id": t["tid"]  # Hyperliquid unique trade ID
             })
 
         if batch:
             trades_buffer.extend(batch)
             last_trade_time = datetime.utcnow()
-            #print(f"[WS] Buffered {len(batch)} trades (total: {len(trades_buffer)})", flush=True)
+            print(f"[WS] Buffered {len(batch)} trades (total: {len(trades_buffer)})", flush=True)
 
         ws_connected = True
 
@@ -56,12 +57,20 @@ async def flush_trades():
     batch = trades_buffer.copy()
     trades_buffer.clear()
 
+    # Deduplicate by trade_id (Hyperliquid unique identifier) before inserting
+    seen_trade_ids = set()
+    deduplicated_batch = []
+    for t in batch:
+        if t['trade_id'] not in seen_trade_ids:
+            seen_trade_ids.add(t['trade_id'])
+            deduplicated_batch.append(t)
+
     try:
-        count = DatabaseService.bulk_insert_trades(batch)
-        #print(f"[DB] Inserted {count} trades", flush=True)
+        count = DatabaseService.bulk_insert_trades(deduplicated_batch)
+        print(f"[DB] Inserted {count} trades", flush=True)
     except Exception as e:
         print(f"[DB] Error inserting trades: {e}", flush=True)
-        trades_buffer.extend(batch)
+        trades_buffer.extend(deduplicated_batch)
 
 
 async def flush_loop():

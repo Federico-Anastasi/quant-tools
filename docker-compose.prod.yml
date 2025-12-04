@@ -1,5 +1,7 @@
 services:
-  # TimescaleDB Database
+  # ============================================================================
+  # Database Container (1 CPU reserved)
+  # ============================================================================
   db:
     image: timescale/timescaledb:latest-pg15
     container_name: quant_tools_db
@@ -7,37 +9,65 @@ services:
     environment:
       POSTGRES_DB: quant_tools
       POSTGRES_USER: quant_user
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}  # Must be set in .env file
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_MAX_CONNECTIONS: 200  # 4 containers × 25 max connections
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./database/migrations:/docker-entrypoint-initdb.d
     networks:
       - quant_network
+    deploy:
+      resources:
+        reservations:
+          cpus: '1.0'
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U quant_user -d quant_tools"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # FastAPI Backend
-  backend:
+  # ============================================================================
+  # Redis Container (Cache + Pub/Sub + Locks)
+  # ============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: quant_tools_redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    networks:
+      - quant_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ============================================================================
+  # API Container (1 CPU reserved) - FastAPI endpoints only
+  # ============================================================================
+  api:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: quant_tools_backend
+    container_name: quant_tools_api
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
-      # PRODUCTION MODE: Disables /docs and enforces strict CORS
       ENV: production
+      CONTAINER_MODE: api  # API-only mode (no background pipelines)
       DATABASE_URL: postgresql://quant_user:${POSTGRES_PASSWORD}@db:5432/quant_tools
-      WS_URL: wss://api.hyperliquid.xyz/ws
-      # Your production frontend domain (set in .env file)
+      REDIS_URL: redis://redis:6379/0
       FRONTEND_URL: ${FRONTEND_URL}
     networks:
       - quant_network
+    deploy:
+      resources:
+        reservations:
+          cpus: '1.0'
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -45,7 +75,65 @@ services:
       timeout: 10s
       retries: 3
 
-  # React Frontend (Production Build)
+  # ============================================================================
+  # Real-Time Container (1 CPU reserved) - SINGLETON
+  # WebSocket + CVD + Runs + Bot Executor
+  # ============================================================================
+  realtime:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: quant_tools_realtime
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      ENV: production
+      DATABASE_URL: postgresql://quant_user:${POSTGRES_PASSWORD}@db:5432/quant_tools
+      REDIS_URL: redis://redis:6379/0
+      WS_URL: wss://api.hyperliquid.xyz/ws
+    networks:
+      - quant_network
+    deploy:
+      replicas: 1  # CRITICAL: Only one instance for bot executor singleton
+      resources:
+        reservations:
+          cpus: '1.0'
+    command: python -m app.main_realtime
+
+  # ============================================================================
+  # Compute Container (1 CPU reserved)
+  # Zone Analysis + LOB Calculation (triggered via Redis Pub/Sub)
+  # ============================================================================
+  compute:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: quant_tools_compute
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      ENV: production
+      DATABASE_URL: postgresql://quant_user:${POSTGRES_PASSWORD}@db:5432/quant_tools
+      REDIS_URL: redis://redis:6379/0
+    networks:
+      - quant_network
+    deploy:
+      resources:
+        reservations:
+          cpus: '1.0'
+    command: python -m app.main_compute
+
+  # ============================================================================
+  # Frontend Container (React Production Build)
+  # ============================================================================
   frontend:
     build:
       context: ./frontend
@@ -57,13 +145,15 @@ services:
     networks:
       - quant_network
 
-  # Nginx Reverse Proxy
+  # ============================================================================
+  # Nginx Reverse Proxy (Unified access point)
+  # ============================================================================
   nginx:
     image: nginx:alpine
     container_name: quant_tools_nginx
     restart: unless-stopped
     depends_on:
-      backend:
+      api:
         condition: service_healthy
       frontend:
         condition: service_started
@@ -82,10 +172,16 @@ services:
       timeout: 10s
       retries: 3
 
+# ==============================================================================
+# Networks
+# ==============================================================================
 networks:
   quant_network:
     name: quant_network
 
+# ==============================================================================
+# Volumes
+# ==============================================================================
 volumes:
   postgres_data:
     name: quant_tools_postgres_data
