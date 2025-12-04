@@ -3,7 +3,7 @@ import axios from 'axios'
 import CVDChart from '../components/CVDChart'
 import LOBChart from '../components/LOBChart'
 import BotsTab from '../components/BotsTab'
-import Sidebar from '../components/Sidebar'
+import IndicatorsPanel from '../components/IndicatorsPanel'
 import Header from '../components/Header'
 import Footer from '../components/Footer'
 import AboutModal from '../components/AboutModal'
@@ -202,7 +202,7 @@ export default function Dashboard() {
     const total_volume = lastCandle.volume_buy + lastCandle.volume_sell
     const trades_per_min = (total_volume / 3).toFixed(1)
 
-    // Last Signal (from signal field)
+    // Last Signal (from signal field) - Updated nomenclature
     let last_signal = '--'
     if (lastCandle.signal !== 0 && lastCandle.signal !== null && lastCandle.signal !== undefined) {
       const sig = lastCandle.signal
@@ -210,9 +210,9 @@ export default function Dashboard() {
       const sign = sig > 0 ? '+' : ''
 
       let label = ''
-      if (absVal === 3) label = sig > 0 ? 'STRONG BULL' : 'STRONG BEAR'
-      else if (absVal === 2) label = sig > 0 ? 'BULL DIV' : 'BEAR DIV'
-      else if (absVal === 1) label = 'ABSORPTION'
+      if (absVal === 3) label = 'Strong Coherence'
+      else if (absVal === 2) label = 'Divergence'
+      else if (absVal === 1) label = 'Absorption'
 
       last_signal = `${sign}${sig} ${label}`
     }
@@ -353,57 +353,6 @@ export default function Dashboard() {
   }
 
   // ────────────────────────────────────────────────────────────
-  // SCREENSHOT HANDLER
-  // ────────────────────────────────────────────────────────────
-
-  const handleScreenshot = async () => {
-    try {
-      // Generate timestamp for filename
-      const now = new Date()
-      const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, -5)
-      const filename = `${activeTab}-full-page_${timestamp}.png`
-
-      // Use html2canvas to capture entire application (header, sidebar, chart, footer)
-      const html2canvas = (await import('html2canvas')).default
-      const appContainer = document.getElementById('app-container')
-
-      if (!appContainer) {
-        return
-      }
-
-      const canvas = await html2canvas(appContainer, {
-        backgroundColor: '#0b0e11',
-        scale: 2,  // 2x resolution for high quality
-        logging: false,
-        useCORS: true,  // Allow cross-origin images if any
-        height: appContainer.scrollHeight,  // Capture full height including any overflow
-        windowHeight: appContainer.scrollHeight
-      })
-
-      const imageDataUrl = canvas.toDataURL('image/png')
-
-      // Create download link
-      const link = document.createElement('a')
-      link.href = imageDataUrl
-      link.download = filename
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-    } catch (err) {
-      console.error('[Dashboard] Screenshot failed:', err)
-    }
-  }
-
-  // ────────────────────────────────────────────────────────────
-  // RESET VIEW HANDLER
-  // ────────────────────────────────────────────────────────────
-
-  const handleResetView = () => {
-    // This is handled by CVDChart's double-click interaction
-    // Button is informational only
-  }
-
-  // ────────────────────────────────────────────────────────────
   // TAB CHANGE HANDLER
   // ────────────────────────────────────────────────────────────
 
@@ -475,7 +424,7 @@ export default function Dashboard() {
       {/* Header */}
       <Header
         status={connectionStatus}
-        onScreenshot={handleScreenshot}
+        btcPrice={kpis.current_price}
         activeTab={activeTab}
         onTabChange={handleTabChange}
         onMenuToggle={() => setSidebarOpen(!sidebarOpen)}
@@ -483,92 +432,86 @@ export default function Dashboard() {
         onAboutClick={() => setShowAboutModal(true)}
       />
 
-      {/* Main Layout: Sidebar + Content */}
-      <div className="flex-1 flex overflow-hidden relative">
-        {/* Mobile Backdrop */}
-        {sidebarOpen && (
-          <div
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
-            onClick={() => setSidebarOpen(false)}
-          />
-        )}
+      {/* Main Layout - Conditional: 80/20 for CVD, Full width for LOB/Bots */}
+      {activeTab === 'cvd' ? (
+        // Order Flow Tab: 80/20 Layout with Indicators Panel
+        <div className="flex-1 flex flex-col lg:flex-row gap-3 p-3 overflow-y-auto">
+          {/* Chart Card (80% width on desktop, full width on mobile) */}
+          <div className="flex-1 lg:w-[80%] bg-void-800/50 border border-void-600/50 rounded-lg relative min-h-[800px] overflow-hidden">
+            {/* Loading Overlay (Only on first load) */}
+            {loading && !candlesData && (
+              <div className="absolute inset-0 bg-void-900/90 backdrop-blur-sm flex items-center justify-center z-50">
+                <div className="text-center">
+                  <div className="w-12 h-12 border-4 border-void-600 border-t-neon-cyan rounded-full animate-spin mx-auto mb-3" />
+                  <div className="text-sm text-gray-400">Loading data...</div>
+                </div>
+              </div>
+            )}
 
-        {/* Sidebar - Desktop: always visible, Mobile: slide-in drawer */}
-        <div className={`
-          fixed lg:relative inset-y-0 left-0 z-50
-          w-[280px] lg:w-[260px]
-          transform transition-transform duration-300 ease-out
-          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
-        `}>
-          <Sidebar
-            kpis={kpis}
-            systemInfo={systemInfo}
-            zonesData={zonesData}
-            onResetView={handleResetView}
-            onClose={() => setSidebarOpen(false)}
-          />
+            {/* Error State (Only if no data) */}
+            {error && !candlesData && (
+              <div className="absolute inset-0 flex items-center justify-center z-50">
+                <div className="bg-void-800 border border-neon-red p-6 rounded-lg max-w-md">
+                  <h3 className="text-neon-red font-bold mb-2">Error Loading Data</h3>
+                  <p className="text-gray-400 text-sm">{error}</p>
+                  <button
+                    onClick={() => fetchCandles()}
+                    className="mt-4 bg-void-700 hover:bg-void-600 border border-void-500 px-4 py-2 rounded text-sm transition-all"
+                  >
+                    Retry
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* CVD Chart */}
+            {chartData && (
+              <CVDChart
+                data={chartData}
+                zonesData={zonesData}
+              />
+            )}
+          </div>
+
+          {/* Indicator Cards (20% width on desktop, full width on mobile) */}
+          <aside className="w-full lg:w-[20%]">
+            <IndicatorsPanel
+              kpis={kpis}
+              systemInfo={systemInfo}
+              zonesData={zonesData}
+            />
+          </aside>
         </div>
+      ) : (
+        // LOB & Bots Tabs: Full width layout
+        <div className="flex-1 p-1 lg:p-3 overflow-y-auto">
+          {/* LOB Chart (Full width) */}
+          {activeTab === 'lob' && (
+            <>
+              {chartData && lobData ? (
+                <LOBChart
+                  priceData={chartData}
+                  lobData={lobData}
+                  priceBin={priceBin}
+                  onPriceBinChange={setPriceBin}
+                />
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center">
+                    <div className="w-12 h-12 border-4 border-void-600 border-t-neon-cyan rounded-full animate-spin mx-auto mb-3" />
+                    <div className="text-sm text-gray-400">Loading LOB data...</div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
 
-        {/* Main Content */}
-        <main className="flex-1 bg-void-900 overflow-hidden relative p-2">
-        {/* Loading Overlay (Only on first load) */}
-        {loading && !candlesData && (
-          <div className="absolute inset-0 bg-void-900/90 backdrop-blur-sm flex items-center justify-center z-50">
-            <div className="text-center">
-              <div className="w-12 h-12 border-4 border-void-600 border-t-neon-cyan rounded-full animate-spin mx-auto mb-3" />
-              <div className="text-sm text-gray-400">Loading data...</div>
-            </div>
-          </div>
-        )}
-
-        {/* Error State (Only if no data) */}
-        {error && !candlesData && (
-          <div className="absolute inset-0 flex items-center justify-center z-50">
-            <div className="bg-void-800 border border-neon-red p-6 rounded-lg max-w-md">
-              <h3 className="text-neon-red font-bold mb-2">Error Loading Data</h3>
-              <p className="text-gray-400 text-sm">{error}</p>
-              <button
-                onClick={() => fetchCandles()}
-                className="mt-4 bg-void-700 hover:bg-void-600 border border-void-500 px-4 py-2 rounded text-sm transition-all"
-              >
-                Retry
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Chart (Show once we have data) */}
-        {activeTab === 'cvd' && chartData && (
-          <CVDChart
-            data={chartData}
-            zonesData={zonesData}
-          />
-        )}
-
-        {/* LOB Chart (Show when LOB tab is active) */}
-        {activeTab === 'lob' && chartData && lobData && (
-          <LOBChart
-            priceData={chartData}
-            lobData={lobData}
-            priceBin={priceBin}
-            onPriceBinChange={setPriceBin}
-          />
-        )}
-        {activeTab === 'lob' && (!chartData || !lobData) && (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <div className="w-12 h-12 border-4 border-void-600 border-t-neon-cyan rounded-full animate-spin mx-auto mb-3" />
-              <div className="text-sm text-gray-400">Loading LOB data...</div>
-            </div>
-          </div>
-        )}
-
-        {/* Bots Tab (Show when bots tab is active) */}
-        {activeTab === 'bots' && (
-          <BotsTab />
-        )}
-        </main>
-      </div>
+          {/* Bots Tab (Full width) */}
+          {activeTab === 'bots' && (
+            <BotsTab />
+          )}
+        </div>
+      )}
 
       {/* Footer */}
       <Footer uptime={uptime} />

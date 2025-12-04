@@ -187,10 +187,12 @@ function BotsTab() {
 
         {/* Equity Comparison Chart */}
         {sortedBots.length > 0 && (
-          <EquityComparisonChart
-            bots={sortedBots}
-            equityCurves={equityCurves}
-          />
+          <div className="mb-8">
+            <EquityComparisonChart
+              bots={sortedBots}
+              equityCurves={equityCurves}
+            />
+          </div>
         )}
 
         {/* Bots Grid */}

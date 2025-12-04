@@ -101,7 +101,6 @@ function AboutModal({ isOpen, onClose }) {
 
           {/* Legal Disclaimer */}
           <section className="bg-void-800 border border-void-600 rounded-md p-4">
-            <h3 className="text-sm font-bold text-gray-400 mb-2">Legal Disclaimer</h3>
             <p className="text-gray-500 text-xs leading-relaxed">
               For educational and research purposes only. Not financial advice.
               Past performance does not indicate future results.

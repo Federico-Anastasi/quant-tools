@@ -44,6 +44,17 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
     startXEnd: 0
   });
 
+  // Touch state for mobile gestures
+  const touchStateRef = useRef({
+    touches: [],
+    initialDistance: 0,
+    initialYMin: null,
+    initialYMax: null,
+    initialXStart: null,
+    initialXEnd: null,
+    mode: null  // 'pan', 'pinch', or 'zoom-y'
+  });
+
   useEffect(() => {
     if (!chartRef.current) return;
 
@@ -250,34 +261,22 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
 
       grid: [
         {
-          left: 70,
+          left: 45,  // Reduced from 70 for mobile (closer price labels to left edge)
           right: '28%',
-          top: '5%',
+          top: 10,  // Reduced from 5% (~40px) to 10px - recovered ~30px vertical space
           bottom: 60,  // Space for slider + axis labels
           containLabel: false
         },
         {
           left: '75%',
           right: 20,
-          top: '5%',
+          top: 10,  // Match left panel
           bottom: 60,  // Match left panel
           containLabel: false
         }
       ],
-      title: [
-        {
-          text: 'Price Evolution with Resistance/Support Heatmap',
-          left: 75,
-          top: '2%',
-          textStyle: { color: '#8b93a0', fontSize: 12, fontWeight: 'bold' }
-        },
-        {
-          text: 'Directional Liquidity Density Profile',
-          left: '76%',
-          top: '2%',
-          textStyle: { color: '#8b93a0', fontSize: 12, fontWeight: 'bold' }
-        }
-      ],
+      // Titles removed - tab header already identifies content ("Liquidity")
+      // More space for chart, cleaner professional design
       tooltip: {
         trigger: 'axis',
         axisPointer: {
@@ -665,7 +664,7 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
       if (!chartDom) return;
 
       const rect = chartDom.getBoundingClientRect();
-      const gridLeft = 70;
+      const gridLeft = 45;  // Match grid.left value
       const gridWidth = rect.width * 0.72 - gridLeft;
       const gridHeight = rect.height - (rect.height * 0.05) - 60;
 
@@ -872,7 +871,7 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
         const clampedXRange = Math.max(10, Math.min(100, newXRange));
 
         // Calculate X position at cursor (percentage of chart width)
-        const gridLeft = 70;
+        const gridLeft = 45;  // Match grid.left value
         const gridWidth = rect.width * 0.72 - gridLeft;
         const relativeX = (x - gridLeft) / gridWidth;
         const xAtCursor = currentXStart + relativeX * currentXRange;
@@ -913,6 +912,244 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
       }
     };
 
+    // ============================================================
+    // TOUCH HANDLERS FOR MOBILE (parallel to mouse handlers)
+    // ============================================================
+
+    const getTouchPos = (touch) => {
+      const chartDom = chartRef.current;
+      if (!chartDom) return { x: 0, y: 0 };
+
+      const rect = chartDom.getBoundingClientRect();
+      return {
+        x: touch.clientX - rect.left,
+        y: touch.clientY - rect.top
+      };
+    };
+
+    const getDistance = (touch1, touch2) => {
+      const dx = touch2.clientX - touch1.clientX;
+      const dy = touch2.clientY - touch1.clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    };
+
+    const handleTouchStart = (e) => {
+      const chartDom = chartRef.current;
+      if (!chartDom) return;
+
+      const rect = chartDom.getBoundingClientRect();
+      const touches = Array.from(e.touches);
+
+      if (touches.length === 1) {
+        // Single touch - prepare for pan
+        const pos = getTouchPos(touches[0]);
+        const gridTop = rect.height * 0.05;
+        const gridBottom = rect.height - 60;
+        const isInYRange = pos.y > gridTop && pos.y < gridBottom;
+
+        if (pos.x < 45 && isInYRange) {
+          // Touch on Y-axis → ZOOM Y mode (will be handled by pinch)
+          touchStateRef.current.mode = 'zoom-y';
+          touchStateRef.current.touches = touches;
+          touchStateRef.current.initialYMin = axisStateRef.current.yAuto ? priceMin : axisStateRef.current.yMin;
+          touchStateRef.current.initialYMax = axisStateRef.current.yAuto ? priceMax : axisStateRef.current.yMax;
+          axisStateRef.current.yAuto = false;
+          e.preventDefault();
+        } else if (pos.x >= 45 && pos.x < rect.width * 0.72 && isInYRange) {
+          // Touch on chart → PAN mode
+          touchStateRef.current.mode = 'pan';
+          touchStateRef.current.touches = touches;
+          touchStateRef.current.initialYMin = axisStateRef.current.yAuto ? priceMin : axisStateRef.current.yMin;
+          touchStateRef.current.initialYMax = axisStateRef.current.yAuto ? priceMax : axisStateRef.current.yMax;
+          touchStateRef.current.initialXStart = axisStateRef.current.xStart;
+          touchStateRef.current.initialXEnd = axisStateRef.current.xEnd;
+          axisStateRef.current.yAuto = false;
+          e.preventDefault();
+        }
+      } else if (touches.length === 2) {
+        // Two fingers - prepare for pinch zoom
+        touchStateRef.current.mode = 'pinch';
+        touchStateRef.current.touches = touches;
+        touchStateRef.current.initialDistance = getDistance(touches[0], touches[1]);
+        touchStateRef.current.initialYMin = axisStateRef.current.yAuto ? priceMin : axisStateRef.current.yMin;
+        touchStateRef.current.initialYMax = axisStateRef.current.yAuto ? priceMax : axisStateRef.current.yMax;
+        touchStateRef.current.initialXStart = axisStateRef.current.xStart;
+        touchStateRef.current.initialXEnd = axisStateRef.current.xEnd;
+        axisStateRef.current.yAuto = false;
+        e.preventDefault();
+      }
+    };
+
+    const handleTouchMove = (e) => {
+      if (!touchStateRef.current.mode) return;
+
+      const chartDom = chartRef.current;
+      if (!chartDom) return;
+
+      const rect = chartDom.getBoundingClientRect();
+      const touches = Array.from(e.touches);
+
+      if (touchStateRef.current.mode === 'pan' && touches.length === 1) {
+        // Single finger pan
+        const initialPos = getTouchPos(touchStateRef.current.touches[0]);
+        const currentPos = getTouchPos(touches[0]);
+
+        const deltaX = currentPos.x - initialPos.x;
+        const deltaY = currentPos.y - initialPos.y;
+
+        const gridLeft = 45;  // Match grid.left value
+        const gridWidth = rect.width * 0.72 - gridLeft;
+        const gridHeight = rect.height - (rect.height * 0.05) - 60;
+
+        const priceRange = touchStateRef.current.initialYMax - touchStateRef.current.initialYMin;
+        const fullDataRange = priceMax - priceMin;
+
+        // Y-axis pan
+        const priceShift = (deltaY / gridHeight) * priceRange;
+        let newYMin = touchStateRef.current.initialYMin + priceShift;
+        let newYMax = touchStateRef.current.initialYMax + priceShift;
+
+        // Clamp Y
+        const currentRange = newYMax - newYMin;
+        if (newYMin < priceMin - fullDataRange) {
+          newYMin = priceMin - fullDataRange;
+          newYMax = newYMin + currentRange;
+        }
+        if (newYMax > priceMax + fullDataRange) {
+          newYMax = priceMax + fullDataRange;
+          newYMin = newYMax - currentRange;
+        }
+
+        // X-axis pan
+        const xRange = touchStateRef.current.initialXEnd - touchStateRef.current.initialXStart;
+        const xShift = -(deltaX / gridWidth) * xRange;
+
+        let newXStart = touchStateRef.current.initialXStart + xShift;
+        let newXEnd = touchStateRef.current.initialXEnd + xShift;
+
+        // Clamp X
+        if (newXStart < 0) {
+          newXEnd = newXEnd - newXStart;
+          newXStart = 0;
+        }
+        if (newXEnd > 100) {
+          newXStart = newXStart - (newXEnd - 100);
+          newXEnd = 100;
+        }
+
+        if (newYMin >= newYMax) return;
+
+        axisStateRef.current.yMin = newYMin;
+        axisStateRef.current.yMax = newYMax;
+        axisStateRef.current.xStart = newXStart;
+        axisStateRef.current.xEnd = newXEnd;
+
+        chart.setOption({
+          yAxis: [
+            { min: newYMin, max: newYMax },
+            { min: newYMin, max: newYMax }
+          ],
+          dataZoom: [{
+            start: newXStart,
+            end: newXEnd
+          }]
+        }, {
+          notMerge: false,
+          lazyUpdate: false,
+          silent: false
+        });
+
+        renderHeatmap();
+        e.preventDefault();
+
+      } else if (touchStateRef.current.mode === 'pinch' && touches.length === 2) {
+        // Two finger pinch zoom
+        const currentDistance = getDistance(touches[0], touches[1]);
+        const initialDistance = touchStateRef.current.initialDistance;
+
+        if (initialDistance === 0) return;
+
+        // Calculate zoom factor
+        const zoomFactor = initialDistance / currentDistance;
+
+        const fullDataRange = priceMax - priceMin;
+        const minAllowedRange = fullDataRange * 0.08;
+        const maxAllowedRange = fullDataRange * 2;
+
+        // Y-axis zoom (vertical pinch)
+        const initialYRange = touchStateRef.current.initialYMax - touchStateRef.current.initialYMin;
+        const newYRange = initialYRange * zoomFactor;
+        const clampedYRange = Math.max(minAllowedRange, Math.min(maxAllowedRange, newYRange));
+
+        const centerPrice = (touchStateRef.current.initialYMin + touchStateRef.current.initialYMax) / 2;
+        const newYMin = centerPrice - clampedYRange / 2;
+        const newYMax = centerPrice + clampedYRange / 2;
+
+        // X-axis zoom (horizontal pinch)
+        const initialXRange = touchStateRef.current.initialXEnd - touchStateRef.current.initialXStart;
+        const newXRange = initialXRange * zoomFactor;
+        const clampedXRange = Math.max(10, Math.min(100, newXRange));
+
+        const centerX = (touchStateRef.current.initialXStart + touchStateRef.current.initialXEnd) / 2;
+        let newXStart = centerX - clampedXRange / 2;
+        let newXEnd = centerX + clampedXRange / 2;
+
+        // Clamp X
+        if (newXStart < 0) {
+          newXEnd = newXEnd - newXStart;
+          newXStart = 0;
+        }
+        if (newXEnd > 100) {
+          newXStart = newXStart - (newXEnd - 100);
+          newXEnd = 100;
+        }
+
+        if (newYMin >= newYMax) return;
+
+        axisStateRef.current.yMin = newYMin;
+        axisStateRef.current.yMax = newYMax;
+        axisStateRef.current.xStart = newXStart;
+        axisStateRef.current.xEnd = newXEnd;
+
+        chart.setOption({
+          yAxis: [
+            { min: newYMin, max: newYMax },
+            { min: newYMin, max: newYMax }
+          ],
+          dataZoom: [{
+            start: newXStart,
+            end: newXEnd
+          }]
+        }, {
+          notMerge: false,
+          lazyUpdate: false,
+          silent: false
+        });
+
+        renderHeatmap();
+        e.preventDefault();
+      }
+    };
+
+    const handleTouchEnd = (e) => {
+      const touches = Array.from(e.touches);
+
+      if (touches.length === 0) {
+        // All fingers lifted - reset
+        touchStateRef.current.mode = null;
+        touchStateRef.current.touches = [];
+      } else if (touches.length === 1 && touchStateRef.current.mode === 'pinch') {
+        // Transition from pinch to pan
+        touchStateRef.current.mode = 'pan';
+        touchStateRef.current.touches = touches;
+        touchStateRef.current.initialYMin = axisStateRef.current.yMin;
+        touchStateRef.current.initialYMax = axisStateRef.current.yMax;
+        touchStateRef.current.initialXStart = axisStateRef.current.xStart;
+        touchStateRef.current.initialXEnd = axisStateRef.current.xEnd;
+      }
+    };
+
+    // Register MOUSE handlers
     zr.on('mousedown', handleMouseDown);
     zr.on('mousemove', handleMouseMove);
     zr.on('mouseup', handleMouseUp);
@@ -921,6 +1158,12 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
     // Add wheel event listener to the chart DOM element
     const chartDom = chartRef.current;
     chartDom.addEventListener('wheel', handleWheel, { passive: false });
+
+    // Register TOUCH handlers (parallel to mouse)
+    chartDom.addEventListener('touchstart', handleTouchStart, { passive: false });
+    chartDom.addEventListener('touchmove', handleTouchMove, { passive: false });
+    chartDom.addEventListener('touchend', handleTouchEnd, { passive: false });
+    chartDom.addEventListener('touchcancel', handleTouchEnd, { passive: false });
 
     // Listen to dataZoom changes (from slider) to sync state
     const handleDataZoomEvent = (params) => {
@@ -960,12 +1203,12 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
 
   return (
     <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
-      {/* Controls Bar - DISABLED: Price bin fixed at $50 for cache optimization */}
+      {/* Controls Bar - HIDDEN: Price bin fixed at $50 for cache optimization */}
       <div style={{
         padding: '6px 8px',
         backgroundColor: '#0b0e11',
         borderBottom: '1px solid #2a2e39',
-        display: 'flex',
+        display: 'none',  // HIDDEN but code preserved
         alignItems: 'center',
         gap: '8px',
         flexWrap: 'wrap'
