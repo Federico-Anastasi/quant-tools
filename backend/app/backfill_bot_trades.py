@@ -67,9 +67,12 @@ def get_last_zone_before(candle_timestamp: datetime, symbol: str = "BTC") -> Opt
         return result
 
 
-def run_bot_backfill():
+def run_bot_backfill(bot_id: Optional[int] = None):
     """
     Main bot backfill function
+
+    Args:
+        bot_id: Optional bot ID to backfill. If None, backfills all bots.
 
     CORRECT Strategy:
     1. Get ALL candles (3-minute intervals)
@@ -83,11 +86,21 @@ def run_bot_backfill():
     """
     print("=" * 80)
     print("[BOT BACKFILL] Starting Bot Trades Historical Backfill")
+    if bot_id:
+        print(f"[BOT BACKFILL] Backfilling ONLY bot_id={bot_id}")
     print("=" * 80)
 
-    # Get all bots
-    bots = DatabaseService.get_all_bots()
-    print(f"[BOT BACKFILL] Found {len(bots)} bots")
+    # Get all bots (or single bot if bot_id specified)
+    if bot_id:
+        bot = DatabaseService.get_bot_by_id(bot_id)
+        if not bot:
+            print(f"[BOT BACKFILL] ERROR: Bot ID {bot_id} not found")
+            return
+        bots = [bot]
+    else:
+        bots = DatabaseService.get_all_bots()
+
+    print(f"[BOT BACKFILL] Found {len(bots)} bot(s) to backfill")
 
     # Track open trades for each bot
     bot_open_trades = {bot['id']: None for bot in bots}
@@ -315,8 +328,14 @@ def run_bot_backfill():
                     leverage = float(bot.get('leverage', 10.0))
                     trading_fee_pct = float(bot.get('trading_fee_pct', 0.04))
 
-                    # Capital allocation (inverse of leverage: 10x = 10%)
-                    capital_pct = 1.0 / leverage
+                    # Capital allocation
+                    # For v2v3_or_conservative_40x: 10% allocation with 40x leverage
+                    # For other bots: inverse of leverage (10x = 10%, 20x = 5%, etc.)
+                    if bot['strategy_type'] == 'v2v3_or_conservative_40x':
+                        capital_pct = 0.1  # Fixed 10% allocation
+                    else:
+                        capital_pct = 1.0 / leverage  # Default: inverse of leverage
+
                     capital_allocated = float(bot['current_balance']) * capital_pct
 
                     # Notional value (market exposure with leverage)
@@ -438,4 +457,15 @@ def run_bot_backfill():
 
 
 if __name__ == '__main__':
-    run_bot_backfill()
+    import sys
+
+    # Check if bot_id was provided as command line argument
+    bot_id = None
+    if len(sys.argv) > 1:
+        try:
+            bot_id = int(sys.argv[1])
+        except ValueError:
+            print(f"ERROR: Invalid bot_id '{sys.argv[1]}'. Must be an integer.")
+            sys.exit(1)
+
+    run_bot_backfill(bot_id)

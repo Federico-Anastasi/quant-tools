@@ -202,6 +202,65 @@ async def check_entry_signals(bot: Dict, candle: Dict, zones: Dict) -> Optional[
                 'max_candles': avg_candles
             }
 
+    elif strategy_type == 'v2v3_or_conservative_40x':
+        # V2+V3 OR Conservative 40x: Same logic as v2v3_or BUT with TP/SL mapping to [0.4%, 0.6%]
+        if 'cumulative_v2' not in zones or 'cumulative_v3' not in zones:
+            return None
+
+        v2_zone = zones['cumulative_v2']
+        v3_zone = zones['cumulative_v3']
+
+        # Check ORIGINAL zones
+        v2_in_zone = v2_zone['zone_min'] <= signal_v2 <= v2_zone['zone_max']
+        v3_in_zone = v3_zone['zone_min'] <= signal_v3 <= v3_zone['zone_max']
+
+        # Check OPPOSITE zones
+        v2_in_opposite = -v2_zone['zone_max'] <= signal_v2 <= -v2_zone['zone_min']
+        v3_in_opposite = -v3_zone['zone_max'] <= signal_v3 <= -v3_zone['zone_min']
+
+        # Calculate average TP/SL from zones
+        avg_tp_zone = (v2_zone['tp_pct'] + v3_zone['tp_pct']) / 2
+        avg_sl_zone = (v2_zone['sl_pct'] + v3_zone['sl_pct']) / 2
+        avg_candles = int((v2_zone['max_candles'] + v3_zone['max_candles']) / 2)
+
+        # Calculate RR from zone parameters
+        rr = avg_tp_zone / abs(avg_sl_zone)
+
+        # MAP TP from [0.2%, 1.6%] to [0.4%, 0.6%]
+        TP_MIN_ZONE = 0.2
+        TP_MAX_ZONE = 1.6
+        TARGET_MIN = 0.4
+        TARGET_MAX = 0.6
+
+        tp_mapped = TARGET_MIN + (avg_tp_zone - TP_MIN_ZONE) / (TP_MAX_ZONE - TP_MIN_ZONE) * (TARGET_MAX - TARGET_MIN)
+
+        # Calculate SL to maintain same RR
+        sl_mapped = tp_mapped / rr
+
+        # Case 1: At least one in ORIGINAL zone AND both zones are LONG (or both SHORT)
+        if (v2_in_zone or v3_in_zone) and (v2_zone['is_long'] == v3_zone['is_long']):
+            return {
+                'direction': 'LONG' if v2_zone['is_long'] else 'SHORT',
+                'entry_price': entry_price,
+                'signal_v2': signal_v2,
+                'signal_v3': signal_v3,
+                'tp_pct': tp_mapped,
+                'sl_pct': sl_mapped,
+                'max_candles': avg_candles
+            }
+
+        # Case 2: At least one in OPPOSITE zone AND both zones agree (for opposite direction)
+        if (v2_in_opposite or v3_in_opposite) and (v2_zone['is_long'] == v3_zone['is_long']):
+            return {
+                'direction': 'SHORT' if v2_zone['is_long'] else 'LONG',
+                'entry_price': entry_price,
+                'signal_v2': signal_v2,
+                'signal_v3': signal_v3,
+                'tp_pct': tp_mapped,
+                'sl_pct': sl_mapped,
+                'max_candles': avg_candles
+            }
+
     elif strategy_type == 'v2v3_or_aggressive':
         # V2+V3 OR Aggressive: Enter when AT LEAST ONE of V2 or V3 is in zone (NO agreement required)
         if 'cumulative_v2' not in zones or 'cumulative_v3' not in zones:
@@ -297,8 +356,14 @@ async def enter_position(bot: Dict, entry_params: Dict, timestamp: datetime) -> 
     leverage = float(bot.get('leverage', 10.0))
     trading_fee_pct = float(bot.get('trading_fee_pct', 0.04))
 
-    # Capital allocation (inverse of leverage: 10x = 10%)
-    capital_pct = 1.0 / leverage
+    # Capital allocation
+    # For v2v3_or_conservative_40x: 10% allocation with 40x leverage
+    # For other bots: inverse of leverage (10x = 10%, 20x = 5%, etc.)
+    if bot['strategy_type'] == 'v2v3_or_conservative_40x':
+        capital_pct = 0.1  # Fixed 10% allocation
+    else:
+        capital_pct = 1.0 / leverage  # Default: inverse of leverage
+
     capital_allocated = float(bot['current_balance']) * capital_pct
 
     # Notional value (market exposure with leverage)

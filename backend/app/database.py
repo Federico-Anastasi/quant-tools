@@ -214,6 +214,8 @@ class Bot(Base):
             "losing_trades": self.losing_trades,
             "max_drawdown": float(self.max_drawdown) if self.max_drawdown else None,
             "sharpe_ratio": float(self.sharpe_ratio) if self.sharpe_ratio else None,
+            "leverage": float(self.leverage),
+            "trading_fee_pct": float(self.trading_fee_pct),
             "created_at": to_utc_iso(self.created_at),
             "updated_at": to_utc_iso(self.updated_at)
         }
