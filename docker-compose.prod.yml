@@ -62,6 +62,8 @@ services:
       DATABASE_URL: postgresql://quant_user:${POSTGRES_PASSWORD}@db:5432/quant_tools
       REDIS_URL: redis://redis:6379/0
       FRONTEND_URL: ${FRONTEND_URL}
+    volumes:
+      - ./backend:/app  # Hot-reload for production (no rebuild needed)
     networks:
       - quant_network
     deploy:
@@ -95,6 +97,8 @@ services:
       DATABASE_URL: postgresql://quant_user:${POSTGRES_PASSWORD}@db:5432/quant_tools
       REDIS_URL: redis://redis:6379/0
       WS_URL: wss://api.hyperliquid.xyz/ws
+    volumes:
+      - ./backend:/app  # Hot-reload for production (no rebuild needed)
     networks:
       - quant_network
     deploy:
@@ -123,6 +127,8 @@ services:
       ENV: production
       DATABASE_URL: postgresql://quant_user:${POSTGRES_PASSWORD}@db:5432/quant_tools
       REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./backend:/app  # Hot-reload for production (no rebuild needed)
     networks:
       - quant_network
     deploy:
@@ -137,11 +143,14 @@ services:
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        VITE_API_URL: ""  # Empty for same-origin requests via Nginx
+      dockerfile: Dockerfile.dev
     container_name: quant_tools_frontend
     restart: unless-stopped
+    environment:
+      VITE_API_URL: ""  # Empty for same-origin requests via Nginx
+    volumes:
+      - ./frontend:/app  # Hot-reload for production (no rebuild needed)
+      - /app/node_modules  # Preserve node_modules
     networks:
       - quant_network
 
