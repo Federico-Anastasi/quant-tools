@@ -12,8 +12,9 @@ PsiQuant provides professional-grade order flow analysis tools for cryptocurrenc
 
 ### Key Features
 
-- **Real-time CVD Analysis** - Cumulative Volume Delta tracking with multi-algorithm signal generation
-- **Liquidity Density Heatmaps** - Support/resistance visualization from limit order book data
+- **Real-time CVD Analysis** - Cumulative Volume Delta tracking with three cumulative indicators (V1 simple, V2 weighted, V3 momentum)
+- **Liquidity Density Heatmaps** - Support/resistance visualization based on effective limit order book density theory
+- **Automated Bot Strategies** - Live paper trading bots using statistical pattern recognition
 - **TradingView-Style UX** - Professional chart interactions with drag, zoom, and pan
 - **Mobile Responsive** - Full-featured interface optimized for desktop and mobile
 - **WebSocket Data Streams** - Real-time market data collection and processing
@@ -93,8 +94,8 @@ All endpoints are documented in the interactive Swagger UI at `/docs` when runni
 # Get CVD candles
 GET /api/candles?hours=24&limit=1000
 
-# Get order flow zones
-GET /api/order-flow-zones?symbol=BTC
+# Get bot leaderboard
+GET /api/bots
 
 # Get LOB density heatmap
 GET /api/lob-density?symbol=BTC&hours=720
@@ -130,11 +131,9 @@ GET /health
 ```
 
 **Multi-container setup:**
-- `db` - PostgreSQL with TimescaleDB extension
+- `db` - PostgreSQL database
 - `redis` - Cache and pub/sub message broker
-- `api` - FastAPI backend (REST endpoints)
-- `realtime` - WebSocket data collector
-- `compute` - Background computation tasks
+- `api` - FastAPI backend with WebSocket collectors
 - `frontend` - React application (static build)
 - `nginx` - Reverse proxy with SSL
 
@@ -217,27 +216,46 @@ quant_tools/
 ### Order Flow Analysis
 
 **CVD (Cumulative Volume Delta):**
-- Tracks the cumulative difference between buy and sell volume
-- Multi-algorithm signal generation (v1/v2/v3)
-- Order flow zones identify optimal entry/exit levels
-- Efficiency ratio calculation (price movement vs CVD)
+- Tracks the cumulative difference between buy and sell volume over time
+- Each 3-minute candle is classified into discrete states based on efficiency ratio
+- Efficiency ratio measures how order flow translates into price movement
+- Three cumulative indicators denoise the classification sequence
 
-**Signal Classification:**
-- +3: Very strong bullish divergence
-- +2: Strong bullish
-- +1: Weak bullish
-- 0: Neutral
-- -1: Weak bearish
-- -2: Strong bearish
-- -3: Very strong bearish divergence
+**Candle Classification System:**
+- **±3 (Strong Coherence)**: Price and CVD move together with high efficiency (>1.5)
+- **±2 (Divergence)**: Price and CVD move in opposite directions (negative efficiency)
+- **±1 (Absorption)**: Large CVD change with small price movement (low efficiency)
+- **0 (Neutral)**: Insufficient order flow or price movement
+
+**Cumulative Indicators:**
+- **V1 (Simple)**: Pure sum of all classifications - captures long-term directional bias
+- **V2 (Weighted)**: Time decay + efficiency amplification - responsive to recent high-conviction moves
+- **V3 (Momentum)**: V1 minus 14-period EMA - captures acceleration/deceleration in order flow
 
 ### Liquidity Density Heatmap
 
-**LOB (Limit Order Book) Analysis:**
-- Real-time limit order book snapshots
-- Density-based support/resistance identification
-- Directional liquidity profile charts
-- Dynamic price bin control for granularity
+**LOB (Limit Order Book) Density:**
+- Identifies directional price runs (consecutive moves in same direction)
+- Calculates effective liquidity density: total volume ÷ price movement
+- High-density zones indicate where significant volume was required to move price
+- Interpreted as potential support (below price) and resistance (above price) levels
+- Based on effective limit order book density theory from research paper
+
+### Automated Bot Strategies
+
+**Statistical Pattern Recognition:**
+- Multiple bots test different combinations of V2/V3 indicators
+- Entry conditions based on historical value ranges (e.g., V2 between +8 and +10)
+- Triple-barrier testing: take-profit, stop-loss, max holding time
+- Live paper trading with realistic fees (0.04% per side) and slippage
+- Bot leaderboard tracks performance in real-time
+
+**Strategy Types:**
+- **V2 Weighted** - Trades exclusively on V2 (decay + efficiency)
+- **V3 Momentum** - Trades exclusively on V3 (V1 minus EMA)
+- **V2 AND V3 Strict** - Requires both indicators to align
+- **V2 OR V3 Conservative** - At least one active, must agree on direction
+- **V2 OR V3 Aggressive** - At least one active, no agreement requirement
 
 ### Chart Interactions
 
