@@ -384,9 +384,9 @@ const CVDChart = ({ data, zonesData }) => {
             let axisIndex = null;
 
             if (gridIdx === 0) {
-                // Main Chart (Price/CVD)
-                if (x < 60) axisIndex = 0; // Price
-                else if (x > width - 60 || isShift) axisIndex = 1; // CVD
+                // Main Chart (Price/CVD) - SWAPPED: CVD left, Price right
+                if (x < 60) axisIndex = 1; // CVD (now on left)
+                else if (x > width - 60 || isShift) axisIndex = 0; // Price (now on right)
             } else {
                 // Sub Charts (Vol/Eff/Cum)
                 // Allow dragging from either side for convenience
@@ -478,8 +478,9 @@ const CVDChart = ({ data, zonesData }) => {
 
             let axisIndex = null;
             if (gridIdx === 0) {
-                if (x < 60) axisIndex = 0;
-                else if (x > width - 60) axisIndex = 1;
+                // SWAPPED: CVD left, Price right
+                if (x < 60) axisIndex = 1; // CVD (now on left)
+                else if (x > width - 60) axisIndex = 0; // Price (now on right)
             } else {
                 if (x < 60 || x > width - 60) axisIndex = CONFIG.GRIDS[gridIdx].axisIndex[0];
             }
@@ -636,7 +637,7 @@ const CVDChart = ({ data, zonesData }) => {
                 {
                     type: 'inside',
                     xAxisIndex: [0, 1, 2, 3, 4],
-                    start: 95, // Start closer to recent data
+                    start: 60, // Show last ~400 candles (40% of ~1000 total) - wider view
                     end: 100,
                     minValueSpan: 5, // Allow zooming in to 5 candles
                     zoomOnMouseWheel: true,
@@ -656,7 +657,7 @@ const CVDChart = ({ data, zonesData }) => {
             ],
 
             grid: CONFIG.GRIDS.map(g => ({
-                left: 70, right: 20,
+                left: 45, right: 45,
                 top: g.top + '%',
                 height: g.height + '%',
                 show: true,
@@ -708,10 +709,10 @@ const CVDChart = ({ data, zonesData }) => {
             })),
 
             yAxis: [
-                // 0: Price (Left)
-                { type: 'value', gridIndex: 0, scale: true, position: 'left', axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { color: '#8b93a0', fontSize: 10, formatter: (v) => v.toFixed(0) }, splitLine: { lineStyle: { color: '#1e232b' } } },
-                // 1: CVD (Right)
-                { type: 'value', gridIndex: 0, scale: true, position: 'right', axisLine: { show: false }, axisLabel: { show: true, color: CONFIG.COLORS.CVD_UP, fontSize: 10, formatter: (v) => v.toFixed(0) }, splitLine: { show: false } },
+                // 0: Price (Right - SWAPPED)
+                { type: 'value', gridIndex: 0, scale: true, position: 'right', axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { color: '#8b93a0', fontSize: 10, formatter: (v) => v.toFixed(0) }, splitLine: { show: false } },
+                // 1: CVD (Left - SWAPPED)
+                { type: 'value', gridIndex: 0, scale: true, position: 'left', axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { show: true, color: CONFIG.COLORS.CVD_UP, fontSize: 10, formatter: (v) => v.toFixed(0) }, splitLine: { lineStyle: { color: '#1e232b' } } },
                 // 2: Order Flow (Volume)
                 { type: 'value', gridIndex: 1, axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { color: '#8b93a0', fontSize: 10, formatter: (v) => v.toFixed(2) }, splitLine: { lineStyle: { color: '#1e232b' } } },
                 // 3: V2 Weighted

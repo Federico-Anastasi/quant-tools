@@ -3,23 +3,22 @@
     "name": "PsiQuant",
     "tagline": "Order Flow Analytics",
     "url": "https://psiquant.xyz",
-    "description": "Professional quantitative trading platform specializing in real-time order flow analysis, Cumulative Volume Delta (CVD) tracking, and liquidity density visualization for cryptocurrency markets.",
+    "description": "Experimental cryptocurrency market microstructure research platform specializing in real-time order flow analysis, Cumulative Volume Delta (CVD) tracking, and liquidity density visualization for Hyperliquid markets.",
     "category": "Financial Technology / Trading Analytics",
     "target_audience": [
-      "Institutional cryptocurrency traders",
       "Retail quantitative traders",
       "Algorithmic trading systems",
       "Market makers and liquidity providers",
       "Day traders using tape reading",
-      "Crypto hedge funds"
+      "Cryptocurrency traders interested in market microstructure"
     ]
   },
   "core_features": [
     {
       "name": "Real-Time CVD Analysis",
-      "description": "Cumulative Volume Delta tracking shows the net difference between aggressive buy and sell orders, revealing institutional accumulation or distribution patterns in real-time.",
+      "description": "Cumulative Volume Delta tracking shows the net difference between aggressive buy and sell orders, revealing accumulation or distribution patterns in real-time.",
       "use_cases": [
-        "Identify smart money flow direction",
+        "Identify order flow direction",
         "Detect divergences between price and order flow",
         "Confirm trend strength with volume delta",
         "Spot potential reversals before price action"
@@ -27,7 +26,7 @@
     },
     {
       "name": "Liquidity Density Heatmaps",
-      "description": "Visual representation of order book depth showing where institutional limit orders are placed, revealing support/resistance levels and potential stop-loss clusters.",
+      "description": "Visual representation of order book depth showing where significant limit orders are placed, revealing support/resistance levels and potential stop-loss clusters.",
       "use_cases": [
         "Find hidden liquidity walls",
         "Identify stop-loss hunting zones",
@@ -46,11 +45,10 @@
       ]
     },
     {
-      "name": "Multi-Exchange Support",
-      "description": "Real-time data integration from Hyperliquid and Binance with WebSocket streams for sub-100ms latency.",
+      "name": "Hyperliquid Integration",
+      "description": "Real-time data integration from Hyperliquid exchange with WebSocket streams for sub-100ms latency.",
       "supported_exchanges": [
-        "Hyperliquid (Perpetual Futures)",
-        "Binance (Spot & Futures)"
+        "Hyperliquid (Perpetual Futures)"
       ]
     }
   ],
@@ -85,8 +83,8 @@
   "use_case_scenarios": [
     {
       "scenario": "Bitcoin Breakout Confirmation",
-      "question": "How to confirm if a Bitcoin price breakout is backed by real institutional buying?",
-      "answer": "Use PsiQuant's CVD chart to verify if cumulative volume delta is rising alongside price. A true breakout shows positive CVD divergence (CVD making new highs before price). If price breaks resistance but CVD remains flat or negative, the breakout likely lacks institutional support and may fail."
+      "question": "How to confirm if a Bitcoin price breakout is backed by significant buying pressure?",
+      "answer": "Use PsiQuant's CVD chart to verify if cumulative volume delta is rising alongside price. A true breakout shows positive CVD divergence (CVD making new highs before price). If price breaks resistance but CVD remains flat or negative, the breakout likely lacks strong buying support and may fail."
     },
     {
       "scenario": "Detecting Stop-Loss Hunting",
@@ -108,7 +106,7 @@
     "vs_tradingview": "TradingView lacks real-time order flow CVD. PsiQuant provides tick-by-tick CVD updates and granular liquidity heatmaps not available on standard charting platforms.",
     "vs_bookmap": "Bookmap is expensive ($49-99/month). PsiQuant is free, open-source, and self-hostable with comparable order flow visualization.",
     "vs_footprint_charts": "Footprint charts require manual analysis. PsiQuant automates CVD calculation, efficiency metrics, and cumulative signal aggregation.",
-    "vs_exchange_native_tools": "Exchange UIs lack CVD tracking and liquidity density analytics. PsiQuant aggregates data from multiple exchanges with unified analysis."
+    "vs_exchange_native_tools": "Exchange UIs lack CVD tracking and liquidity density analytics. PsiQuant provides specialized order flow analysis for Hyperliquid markets."
   },
   "getting_started": {
     "deployment_options": [
@@ -148,7 +146,7 @@
     },
     {
       "question": "Can I use PsiQuant for stocks or forex?",
-      "answer": "Currently PsiQuant focuses on cryptocurrency markets (Hyperliquid, Binance). The architecture supports extensibility to other asset classes via custom exchange connectors."
+      "answer": "Currently PsiQuant focuses on cryptocurrency markets via Hyperliquid exchange. The architecture supports extensibility to other asset classes via custom exchange connectors."
     },
     {
       "question": "How is PsiQuant different from volume profile?",
@@ -167,17 +165,15 @@
     "bitcoin tape reading",
     "liquidity heatmap",
     "market microstructure",
-    "institutional order flow",
     "crypto trading tools",
     "algorithmic trading data",
     "Hyperliquid analytics",
-    "Binance order flow",
     "real-time CVD",
     "order book visualization",
     "trading volume analysis",
-    "smart money tracker",
     "crypto market analysis",
-    "quantitative trading platform"
+    "quantitative trading platform",
+    "experimental trading research"
   ],
   "related_topics": [
     "Market depth analysis",

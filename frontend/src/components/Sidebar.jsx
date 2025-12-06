@@ -183,9 +183,53 @@ export default function Sidebar({ kpis = {}, systemInfo = {}, zonesData = null, 
         </div>
       </div>
 
-      {/* Last Classification */}
+      {/* Last Classification with inline Legend tooltip */}
       <div>
-        <h2 className="text-xs uppercase tracking-widest text-gray-500 font-bold mb-3">Last Classification</h2>
+        <div className="flex justify-between items-center mb-3">
+          <h2 className="text-xs uppercase tracking-widest text-gray-500 font-bold">Last Classification</h2>
+          {/* Info icon with tooltip */}
+          <div className="group relative">
+            <svg className="w-4 h-4 text-gray-500 hover:text-neon-cyan cursor-help transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            {/* Tooltip - Classification Legend */}
+            <div className="absolute right-0 top-6 w-64 bg-void-800 border border-void-600 rounded-md p-3 text-xs font-mono space-y-1.5 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 shadow-xl">
+              <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2 font-bold">Classification Scale</div>
+
+              <div className="flex justify-between items-center">
+                <span className="text-neon-cyan font-bold">+3</span>
+                <span className="text-gray-400">Strong Coherence</span>
+              </div>
+
+              <div className="flex justify-between items-center">
+                <span className="text-neon-cyan font-bold">+2</span>
+                <span className="text-gray-400">Divergence</span>
+              </div>
+
+              <div className="flex justify-between items-center">
+                <span className="text-neon-cyan font-bold">+1</span>
+                <span className="text-gray-400">Absorption</span>
+              </div>
+
+              <div className="border-t border-void-600 my-1"></div>
+
+              <div className="flex justify-between items-center">
+                <span className="text-neon-red font-bold">-1</span>
+                <span className="text-gray-400">Absorption</span>
+              </div>
+
+              <div className="flex justify-between items-center">
+                <span className="text-neon-red font-bold">-2</span>
+                <span className="text-gray-400">Divergence</span>
+              </div>
+
+              <div className="flex justify-between items-center">
+                <span className="text-neon-red font-bold">-3</span>
+                <span className="text-gray-400">Strong Coherence</span>
+              </div>
+            </div>
+          </div>
+        </div>
         <div className={`bg-void-800 border ${getClassificationBorderColor()} rounded-md p-2.5 relative overflow-hidden transition-colors`}>
           <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-gray-500"></div>
           <div className="flex justify-between items-center">
@@ -359,46 +403,6 @@ export default function Sidebar({ kpis = {}, systemInfo = {}, zonesData = null, 
             Loading zones...
           </div>
         )}
-      </div>
-
-      {/* Classification Legend */}
-      <div>
-        <h2 className="text-xs uppercase tracking-widest text-gray-500 font-bold mb-3">Classification Legend</h2>
-        <div className="bg-void-800 border border-void-600 rounded-md p-3 text-xs font-mono space-y-1.5">
-
-          <div className="flex justify-between items-center">
-            <span className="text-neon-cyan font-bold">+3</span>
-            <span className="text-gray-400">Strong Coherence</span>
-          </div>
-
-          <div className="flex justify-between items-center">
-            <span className="text-neon-cyan font-bold">+2</span>
-            <span className="text-gray-400">Divergence</span>
-          </div>
-
-          <div className="flex justify-between items-center">
-            <span className="text-neon-cyan font-bold">+1</span>
-            <span className="text-gray-400">Absorption</span>
-          </div>
-
-          <div className="border-t border-void-600 my-1"></div>
-
-          <div className="flex justify-between items-center">
-            <span className="text-neon-red font-bold">-1</span>
-            <span className="text-gray-400">Absorption</span>
-          </div>
-
-          <div className="flex justify-between items-center">
-            <span className="text-neon-red font-bold">-2</span>
-            <span className="text-gray-400">Divergence</span>
-          </div>
-
-          <div className="flex justify-between items-center">
-            <span className="text-neon-red font-bold">-3</span>
-            <span className="text-gray-400">Strong Coherence</span>
-          </div>
-
-        </div>
       </div>
 
       {/* System Info */}

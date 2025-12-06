@@ -50,7 +50,7 @@ backend/static/
 # Environment
 .env
 .env.local
-frontend/.env.production
+# frontend/.env.production is PUBLIC (only contains domain URL), must be committed for production builds
 
 # Database
 *.db
