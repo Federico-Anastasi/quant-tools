@@ -67,6 +67,31 @@
       ]
     }
     </script>
+
+    <!-- Google Analytics 4 -->
+    <script>
+      // Initialize gtag with default consent denied
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('consent', 'default', {
+        'analytics_storage': 'denied'
+      });
+
+      // Check if user has already consented
+      const consent = localStorage.getItem('psiquant_analytics_consent');
+      if (consent === 'accepted') {
+        gtag('consent', 'update', {
+          'analytics_storage': 'granted'
+        });
+      }
+
+      // Initialize GA4 only if consent is granted
+      if (consent === 'accepted') {
+        gtag('config', 'G-STKY781B4G');
+      }
+    </script>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-STKY781B4G"></script>
   </head>
   <body>
     <div id="root"></div>
