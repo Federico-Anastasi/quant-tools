@@ -143,14 +143,11 @@ services:
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ""  # Empty for same-origin requests via Nginx
     container_name: quant_tools_frontend
     restart: unless-stopped
-    environment:
-      VITE_API_URL: ""  # Empty for same-origin requests via Nginx
-    volumes:
-      - ./frontend:/app  # Hot-reload for production (no rebuild needed)
-      - /app/node_modules  # Preserve node_modules
     networks:
       - quant_network
 
