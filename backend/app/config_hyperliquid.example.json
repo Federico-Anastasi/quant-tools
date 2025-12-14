@@ -1,0 +1,9 @@
+{
+  "secret_key": "0xYOUR_PRIVATE_KEY_HERE_64_HEX_CHARACTERS",
+  "account_address": "0xYOUR_ACCOUNT_ADDRESS_HERE",
+  "is_active": false,
+  "symbol": "BTC",
+  "risk_pct": 2.0,
+  "trading_fee_pct": 0.04,
+  "min_zone_trades": 10
+}
