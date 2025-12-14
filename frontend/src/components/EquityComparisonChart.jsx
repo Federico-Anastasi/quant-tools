@@ -27,11 +27,13 @@ function EquityComparisonChart({ bots = [], equityCurves = {} }) {
 
   // Bot colors matching the card badges
   const botColors = {
-    'v2_pure': '#3b82f6',            // Blue
-    'v3_momentum': '#a855f7',        // Purple
-    'consensus': '#10b981',          // Green
-    'v2v3_or': '#f59e0b',            // Yellow/Gold
-    'v2v3_or_aggressive': '#ec4899'  // Pink
+    'v2_pure': '#3b82f6',                    // Blue
+    'v3_momentum': '#a855f7',                // Purple
+    'consensus': '#10b981',                  // Green
+    'v2v3_or': '#f59e0b',                    // Yellow/Gold
+    'v2v3_or_aggressive': '#ec4899',         // Pink
+    'v2v3_or_conservative_40x': '#06b6d4',   // Cyan
+    'v3_momentum_risk_fixed': '#f97316'      // Orange
   };
 
   // Initialize and update chart

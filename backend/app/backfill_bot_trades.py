@@ -224,8 +224,8 @@ def run_bot_backfill(bot_id: Optional[int] = None):
                     direction = open_trade['direction']
                     capital_allocated = float(open_trade['capital_allocated'])
 
-                    # Bot leverage and fee configuration
-                    leverage = float(bot.get('leverage', 10.0))
+                    # Get leverage from TRADE RECORD (critical for fixed_risk strategies with variable leverage)
+                    leverage = float(open_trade.get('leverage', 10.0))
                     trading_fee_pct = float(bot.get('trading_fee_pct', 0.04))
 
                     # Notional value (market exposure with leverage)
@@ -324,28 +324,62 @@ def run_bot_backfill(bot_id: Optional[int] = None):
                     sl_pct = entry_params['sl_pct']
                     max_candles = entry_params['max_candles']
 
-                    # Bot leverage and fee configuration
-                    leverage = float(bot.get('leverage', 10.0))
+                    # Bot fee configuration
                     trading_fee_pct = float(bot.get('trading_fee_pct', 0.04))
 
-                    # Capital allocation
-                    # For v2v3_or_conservative_40x: 10% allocation with 40x leverage
-                    # For other bots: inverse of leverage (10x = 10%, 20x = 5%, etc.)
-                    if bot['strategy_type'] == 'v2v3_or_conservative_40x':
-                        capital_pct = 0.1  # Fixed 10% allocation
+                    # Check if this is a fixed risk strategy (SAME LOGIC AS bot_executor.py)
+                    is_fixed_risk = entry_params.get('fixed_risk', False)
+
+                    if is_fixed_risk:
+                        # FIXED RISK CALCULATION
+                        risk_pct = float(bot.get('risk_pct', 2.0))
+                        current_balance = float(bot['current_balance'])
+
+                        # Calculate risk amount (2% of total balance net after fees)
+                        risk_amount = current_balance * (risk_pct / 100)
+
+                        # Calculate notional needed for fixed risk
+                        sl_pct_abs = abs(sl_pct) / 100
+                        fee_pct = trading_fee_pct / 100
+                        notional_value = risk_amount / (sl_pct_abs + 2 * fee_pct)
+
+                        # Use 100% of balance as margin to minimize leverage
+                        capital_allocated = current_balance
+
+                        # Calculate required leverage
+                        leverage = notional_value / capital_allocated
+
+                        # Round leverage (keep 2 decimals for paper trading)
+                        leverage = max(1.0, round(leverage, 2))
+
+                        # Entry fee (on notional value)
+                        entry_fee = notional_value * fee_pct
+
+                        # Position size
+                        position_size = notional_value / entry_price
+
                     else:
-                        capital_pct = 1.0 / leverage  # Default: inverse of leverage
+                        # STANDARD CALCULATION (percentage-based capital allocation)
+                        leverage = float(bot.get('leverage', 10.0))
 
-                    capital_allocated = float(bot['current_balance']) * capital_pct
+                        # Capital allocation
+                        # For v2v3_or_conservative_40x: 10% allocation with 40x leverage
+                        # For other bots: inverse of leverage (10x = 10%, 20x = 5%, etc.)
+                        if bot['strategy_type'] == 'v2v3_or_conservative_40x':
+                            capital_pct = 0.1  # Fixed 10% allocation
+                        else:
+                            capital_pct = 1.0 / leverage  # Default: inverse of leverage
 
-                    # Notional value (market exposure with leverage)
-                    notional_value = capital_allocated * leverage
+                        capital_allocated = float(bot['current_balance']) * capital_pct
 
-                    # Entry fee (on notional value)
-                    entry_fee = notional_value * (trading_fee_pct / 100)
+                        # Notional value (market exposure with leverage)
+                        notional_value = capital_allocated * leverage
 
-                    # Position size
-                    position_size = capital_allocated / entry_price
+                        # Entry fee (on notional value)
+                        entry_fee = notional_value * (trading_fee_pct / 100)
+
+                        # Position size
+                        position_size = capital_allocated / entry_price
 
                     # Calculate TP/SL prices
                     if direction == 'LONG':

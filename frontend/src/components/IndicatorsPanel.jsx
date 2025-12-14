@@ -286,8 +286,11 @@ export default function IndicatorsPanel({ kpis = {}, systemInfo = {}, zonesData 
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">Avg Return (backtest)</span>
-                  <span className={`font-mono font-bold ${v3.mean_return > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                    {v3.mean_return > 0 ? '+' : ''}{v3.mean_return.toFixed(2)}%
+                  <span className={`font-mono font-bold ${(v3.mean_return ?? 0) > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {v3.mean_return !== undefined && v3.mean_return !== null ?
+                      `${v3.mean_return > 0 ? '+' : ''}${v3.mean_return.toFixed(2)}%` :
+                      'N/A'
+                    }
                   </span>
                 </div>
                 <div className="flex justify-between">

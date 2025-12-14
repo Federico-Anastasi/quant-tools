@@ -156,12 +156,35 @@ class OrderFlowZonesResponse(BaseModel):
 
 logger = logging.getLogger(__name__)
 
+# SINGLETON: Global LiveTradingService instance (initialized at startup)
+_live_trading_service = None
+
+def get_live_trading_service():
+    """Get singleton instance of LiveTradingService"""
+    global _live_trading_service
+    if _live_trading_service is None:
+        import json
+        import os
+        config_path = os.path.join(os.path.dirname(__file__), 'config_hyperliquid.json')
+        if os.path.exists(config_path):
+            with open(config_path) as f:
+                config = json.load(f)
+            from app.live_trading_service import LiveTradingService
+            _live_trading_service = LiveTradingService(config)
+            logger.info("[SINGLETON] LiveTradingService initialized once at startup")
+        else:
+            logger.warning("[SINGLETON] config_hyperliquid.json not found - live trading disabled")
+    return _live_trading_service
+
 @app.on_event("startup")
 async def startup_event():
     logger.info("Starting Quant Tools Backend")
 
     if not check_db_health():
         logger.warning("Database health check failed")
+
+    # Initialize singleton LiveTradingService at startup
+    get_live_trading_service()
 
     # MULTI-CONTAINER ARCHITECTURE: Check container mode
     # Modes:
@@ -406,6 +429,67 @@ async def get_order_flow_zones(symbol: str = Query("BTC")):
     )
 
 
+@app.get("/api/historical-zones")
+async def get_historical_zones(
+    symbol: str = Query("BTC"),
+    start: Optional[str] = Query(None, description="ISO timestamp (start of window)"),
+    end: Optional[str] = Query(None, description="ISO timestamp (end of window)")
+):
+    """
+    Get all zone snapshots within a time window for backtest replay
+
+    Returns array of zone snapshots ordered by timestamp.
+    Each snapshot contains cumulative_v2 and cumulative_v3 zones with all metrics.
+
+    Frontend matches zones to candles by timestamp for accurate backtest simulation.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    # Default to last 48 hours if no time range provided
+    if not end:
+        end_time = datetime.now(timezone.utc)
+    else:
+        end_time = datetime.fromisoformat(end.replace('Z', '+00:00'))
+
+    if not start:
+        start_time = end_time - timedelta(hours=48)
+    else:
+        start_time = datetime.fromisoformat(start.replace('Z', '+00:00'))
+
+    # Get all zones in time window
+    zones_list = DatabaseService.get_historical_zones(symbol, start_time, end_time)
+
+    # Group by timestamp for easier frontend consumption
+    zones_by_timestamp = {}
+    for zone in zones_list:
+        ts = zone['timestamp']
+        if ts not in zones_by_timestamp:
+            zones_by_timestamp[ts] = {
+                'timestamp': ts,
+                'cumulative_v2': None,
+                'cumulative_v3': None
+            }
+
+        # Remove timestamp and signal_type from individual zone data
+        zone_data = {k: v for k, v in zone.items() if k not in ['timestamp', 'signal_type']}
+
+        if zone['signal_type'] == 'cumulative_v2':
+            zones_by_timestamp[ts]['cumulative_v2'] = zone_data
+        elif zone['signal_type'] == 'cumulative_v3':
+            zones_by_timestamp[ts]['cumulative_v3'] = zone_data
+
+    # Convert to sorted list
+    result = sorted(zones_by_timestamp.values(), key=lambda x: x['timestamp'])
+
+    return {
+        'symbol': symbol,
+        'start_time': start_time.isoformat(),
+        'end_time': end_time.isoformat(),
+        'total_snapshots': len(result),
+        'zones': result
+    }
+
+
 @app.get("/api/bots")
 async def get_bots():
     """Get all bots with REAL-TIME metrics (equity updated to latest candle price)"""
@@ -614,6 +698,165 @@ async def get_bots_equity_bulk(
     return response_data
 
 
+# ============================================================================
+# LIVE TRADING ENDPOINTS
+# ============================================================================
+
+@app.get("/api/live/account")
+async def get_live_account():
+    """
+    Get Hyperliquid account info (balance, equity, margin)
+
+    Returns:
+        {
+            "accountValue": float,
+            "totalMarginUsed": float,
+            "equity": float,
+            "unrealizedPnl": float,
+            "timestamp": str
+        }
+    """
+    try:
+        # Use singleton service (initialized at startup)
+        service = get_live_trading_service()
+        if service is None:
+            return {"error": "Live trading service not configured"}, 503
+
+        account_info = service.hl_client.get_account_info()
+
+        # Calculate equity (account value + unrealized PnL)
+        unrealized_pnl = sum(
+            float(pos.get('unrealizedPnl', 0))
+            for pos in account_info['positions']
+        )
+        equity = account_info['accountValue'] + unrealized_pnl
+
+        return {
+            "accountValue": account_info['accountValue'],
+            "totalMarginUsed": account_info['totalMarginUsed'],
+            "equity": equity,
+            "unrealizedPnl": unrealized_pnl,
+            "timestamp": utc_now_iso()
+        }
+    except Exception as e:
+        logging.error(f"Error fetching live account: {e}")
+        return {"error": str(e)}, 500
+
+
+@app.get("/api/live/position")
+async def get_live_position():
+    """
+    Get current open position on Hyperliquid
+
+    Returns:
+        {
+            "has_position": bool,
+            "symbol": str,
+            "side": "LONG" | "SHORT",
+            "size": float,
+            "entry_price": float,
+            "current_price": float,
+            "tp_price": float,
+            "sl_price": float,
+            "unrealized_pnl": float,
+            "pnl_pct": float
+        }
+    """
+    try:
+        # Use singleton service (initialized at startup)
+        service = get_live_trading_service()
+        if service is None:
+            return {"error": "Live trading service not configured"}, 503
+
+        # Get symbol from service config
+        import json
+        import os
+        config_path = os.path.join(os.path.dirname(__file__), 'config_hyperliquid.json')
+        with open(config_path) as f:
+            config = json.load(f)
+        symbol = config.get('symbol', 'BTC')
+
+        # Get account info
+        account_info = service.hl_client.get_account_info()
+
+        # Find BTC position
+        position = None
+        for pos in account_info['positions']:
+            if pos['coin'] == symbol:
+                position = pos
+                break
+
+        if not position:
+            return {"has_position": False}
+
+        # Get current price from latest candle
+        candle = DatabaseService.get_last_finalized_candle(symbol=symbol)
+        current_price = candle['price_close'] if candle else None
+
+        # Get TP/SL from DB trade record
+        open_trade = DatabaseService.get_open_live_trade(symbol=symbol)
+
+        size = float(position['szi'])
+        entry_price = float(position['entryPx'])
+        unrealized_pnl = float(position['unrealizedPnl'])
+        pnl_pct = (unrealized_pnl / (abs(size) * entry_price)) * 100 if entry_price > 0 else 0
+
+        return {
+            "has_position": True,
+            "symbol": symbol,
+            "side": "LONG" if size > 0 else "SHORT",
+            "size": abs(size),
+            "entry_price": entry_price,
+            "current_price": current_price,
+            "tp_price": open_trade['tp_price'] if open_trade else None,
+            "sl_price": open_trade['sl_price'] if open_trade else None,
+            "unrealized_pnl": unrealized_pnl,
+            "pnl_pct": pnl_pct
+        }
+    except Exception as e:
+        logging.error(f"Error fetching live position: {e}")
+        return {"error": str(e)}, 500
+
+
+@app.get("/api/live/trades")
+async def get_live_trades(limit: int = Query(50, ge=1, le=500)):
+    """
+    Get live trades history
+
+    Args:
+        limit: Maximum number of trades to return (1-500)
+
+    Returns:
+        {
+            "trades": [
+                {
+                    "id": int,
+                    "symbol": str,
+                    "side": "LONG" | "SHORT",
+                    "entry_price": float,
+                    "entry_time": str,
+                    "exit_price": float,
+                    "exit_time": str,
+                    "size": float,
+                    "realized_pnl": float,
+                    "status": "open" | "closed",
+                    "exit_type": "TP" | "SL" | "MANUAL"
+                }
+            ],
+            "total": int
+        }
+    """
+    try:
+        trades = DatabaseService.get_live_trades(limit=limit)
+        return {
+            "trades": trades,
+            "total": len(trades)
+        }
+    except Exception as e:
+        logging.error(f"Error fetching live trades: {e}")
+        return {"error": str(e)}, 500
+
+
 @app.get("/")
 async def root():
     response = {
@@ -625,7 +868,10 @@ async def root():
             "lob_density": "/api/lob-density",
             "order_flow_zones": "/api/order-flow-zones",
             "bots": "/api/bots",
-            "leaderboard": "/api/bots/leaderboard"
+            "leaderboard": "/api/bots/leaderboard",
+            "live_account": "/api/live/account",
+            "live_position": "/api/live/position",
+            "live_trades": "/api/live/trades"
         }
     }
 

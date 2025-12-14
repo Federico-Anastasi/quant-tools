@@ -85,6 +85,35 @@ function Header({
             </svg>
             <span className="text-xs font-bold">Bots</span>
           </button>
+
+          <button
+            onClick={() => onTabChange('backtest')}
+            className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md transition-all ${
+              activeTab === 'backtest'
+                ? 'bg-amber-500/15 text-amber-400'
+                : 'text-gray-400 hover:text-gray-300'
+            }`}
+          >
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+            </svg>
+            <span className="text-xs font-bold">Backtest</span>
+          </button>
+
+          <button
+            onClick={() => onTabChange('live')}
+            className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md transition-all ${
+              activeTab === 'live'
+                ? 'bg-red-500/15 text-red-400'
+                : 'text-gray-400 hover:text-gray-300'
+            }`}
+          >
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M5.5 2a3.5 3.5 0 101.665 6.58L8.585 10l-1.42 1.42a3.5 3.5 0 101.414 1.414l1.42-1.42 1.42 1.42a3.5 3.5 0 101.414-1.414L11.415 10l1.42-1.42A3.5 3.5 0 1011.17 7.165L9.585 8.585 8.165 7.165A3.5 3.5 0 005.5 2zM4 5.5a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zm9 0a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zm-4.5 9a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0z" clipRule="evenodd" />
+            </svg>
+            <span className="text-xs font-bold">Live</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+          </button>
         </div>
       </div>
 
@@ -153,6 +182,35 @@ function Header({
               <path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5z" clipRule="evenodd" />
             </svg>
             Bots
+          </button>
+
+          <button
+            onClick={() => onTabChange('backtest')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-md text-xs font-bold tracking-wide transition-all ${
+              activeTab === 'backtest'
+                ? 'bg-amber-500/20 text-amber-400 shadow-md'
+                : 'text-gray-400 hover:text-gray-300 hover:bg-void-700/50'
+            }`}
+          >
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+            </svg>
+            Backtest
+          </button>
+
+          <button
+            onClick={() => onTabChange('live')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-md text-xs font-bold tracking-wide transition-all ${
+              activeTab === 'live'
+                ? 'bg-red-500/20 text-red-400 shadow-md'
+                : 'text-gray-400 hover:text-gray-300 hover:bg-void-700/50'
+            }`}
+          >
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M5.5 2a3.5 3.5 0 101.665 6.58L8.585 10l-1.42 1.42a3.5 3.5 0 101.414 1.414l1.42-1.42 1.42 1.42a3.5 3.5 0 101.414-1.414L11.415 10l1.42-1.42A3.5 3.5 0 1011.17 7.165L9.585 8.585 8.165 7.165A3.5 3.5 0 005.5 2zM4 5.5a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zm9 0a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zm-4.5 9a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0z" clipRule="evenodd" />
+            </svg>
+            Live
+            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
           </button>
         </div>
         </div>

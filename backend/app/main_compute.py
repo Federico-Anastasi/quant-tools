@@ -13,8 +13,12 @@ ARCHITECTURE:
 
 import asyncio
 import logging
+import json
+import os
 from app.zone_pipeline import zone_pipeline_loop
 from app.lob_subscriber import lob_subscriber_loop
+# LiveExecutor moved to main_realtime.py (closer to CVD pipeline)
+from app.database import DatabaseService
 
 # Configure logging
 logging.basicConfig(
@@ -42,10 +46,15 @@ async def main():
     logger.info("[COMPUTE] Pipelines: Zone Analysis, LOB Subscriber")
 
     try:
-        # Start both pipelines concurrently
-        await asyncio.gather(
+        # Prepare pipeline tasks
+        tasks = [
             zone_pipeline_loop(),     # Hourly zone analysis (CPU-intensive)
             lob_subscriber_loop(),    # LOB calculation subscriber (Redis Pub/Sub)
+        ]
+
+        # Start all pipelines concurrently
+        await asyncio.gather(
+            *tasks,
             return_exceptions=True    # Continue on pipeline errors
         )
     except Exception as e:

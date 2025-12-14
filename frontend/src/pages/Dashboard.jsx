@@ -3,6 +3,8 @@ import axios from 'axios'
 import CVDChart from '../components/CVDChart'
 import LOBChart from '../components/LOBChart'
 import BotsTab from '../components/BotsTab'
+import BacktestTab from '../components/BacktestTab'
+import LiveTab from '../components/LiveTab'
 import IndicatorsPanel from '../components/IndicatorsPanel'
 import Header from '../components/Header'
 import Footer from '../components/Footer'
@@ -509,6 +511,16 @@ export default function Dashboard() {
           {/* Bots Tab (Full width) */}
           {activeTab === 'bots' && (
             <BotsTab />
+          )}
+
+          {/* Backtest Tab (Full width) */}
+          {activeTab === 'backtest' && (
+            <BacktestTab candlesData={candlesData} zonesData={zonesData} />
+          )}
+
+          {/* Live Tab (Full width) */}
+          {activeTab === 'live' && (
+            <LiveTab candlesData={candlesData} zonesData={zonesData} />
           )}
         </div>
       )}

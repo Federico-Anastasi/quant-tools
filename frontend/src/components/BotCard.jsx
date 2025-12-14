@@ -20,7 +20,9 @@ function BotCard({ bot, rank, equityCurve = [], onClick = () => {} }) {
     v3_momentum: { bg: 'bg-purple-500/20', border: 'border-purple-500/30', text: 'text-purple-400', label: 'V3 Momentum', chartColor: '#a855f7' },
     consensus: { bg: 'bg-emerald-500/20', border: 'border-emerald-500/30', text: 'text-emerald-400', label: 'Consensus', chartColor: '#10b981' },
     v2v3_or: { bg: 'bg-amber-500/20', border: 'border-amber-500/30', text: 'text-amber-400', label: 'V2+V3 OR', chartColor: '#f59e0b' },
-    v2v3_or_aggressive: { bg: 'bg-pink-500/20', border: 'border-pink-500/30', text: 'text-pink-400', label: 'V2+V3 Aggressive', chartColor: '#ec4899' }
+    v2v3_or_aggressive: { bg: 'bg-pink-500/20', border: 'border-pink-500/30', text: 'text-pink-400', label: 'V2+V3 Aggressive', chartColor: '#ec4899' },
+    v2v3_or_conservative_40x: { bg: 'bg-cyan-500/20', border: 'border-cyan-500/30', text: 'text-cyan-400', label: 'V2+V3 Conservative 40x', chartColor: '#06b6d4' },
+    v3_momentum_risk_fixed: { bg: 'bg-orange-500/20', border: 'border-orange-500/30', text: 'text-orange-400', label: 'V3 Risk Fixed 2%', chartColor: '#f97316' }
   };
 
   const strategyStyle = strategyColors[bot.strategy_type] || strategyColors.v2_pure;

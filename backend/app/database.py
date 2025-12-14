@@ -745,6 +745,107 @@ class DatabaseService:
 
             return float(closed_fees) + open_entry_fee
 
+    @staticmethod
+    def create_live_trade(symbol, side, entry_price, entry_time, size, tp_price, sl_price, entry_order_id, sl_order_id, tp_order_id, status='open'):
+        """Create new live trade record"""
+        with DatabaseService.get_session() as session:
+            trade = LiveTrade(
+                symbol=symbol,
+                side=side,
+                entry_price=entry_price,
+                entry_time=entry_time,
+                size=size,
+                tp_price=tp_price,
+                sl_price=sl_price,
+                entry_order_id=entry_order_id,
+                sl_order_id=sl_order_id,
+                tp_order_id=tp_order_id,
+                status=status
+            )
+            session.add(trade)
+            session.commit()
+            return trade.id
+
+    @staticmethod
+    def get_open_live_trade(symbol: str = 'BTC'):
+        """Get currently open trade"""
+        with DatabaseService.get_session() as session:
+            trade = session.query(LiveTrade).filter(
+                LiveTrade.symbol == symbol,
+                LiveTrade.status == 'open'
+            ).first()
+            return trade.to_dict() if trade else None
+
+    @staticmethod
+    def close_live_trade(trade_id, exit_price, exit_time, exit_type):
+        """Close trade and calculate P&L"""
+        with DatabaseService.get_session() as session:
+            trade = session.query(LiveTrade).filter(LiveTrade.id == trade_id).first()
+            if trade:
+                trade.exit_price = exit_price
+                trade.exit_time = exit_time
+                trade.exit_type = exit_type
+                trade.status = 'closed'
+                price_diff = float(exit_price) - float(trade.entry_price) if trade.side == 'LONG' else float(trade.entry_price) - float(exit_price)
+                trade.realized_pnl = price_diff * float(trade.size)
+                trade.updated_at = datetime.utcnow()
+                session.commit()
+
+    @staticmethod
+    def get_live_trades(limit=50):
+        """Get trades history"""
+        with DatabaseService.get_session() as session:
+            trades = session.query(LiveTrade).order_by(LiveTrade.entry_time.desc()).limit(limit).all()
+            return [t.to_dict() for t in trades]
+
+
+class LiveTrade(Base):
+    """Live trading on Hyperliquid exchange"""
+    __tablename__ = "live_trades"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    symbol = Column(String(10), nullable=False)
+    side = Column(String(5), nullable=False)
+    entry_price = Column(DECIMAL(20, 8), nullable=False)
+    entry_time = Column(DateTime(timezone=True), nullable=False)
+    exit_price = Column(DECIMAL(20, 8))
+    exit_time = Column(DateTime(timezone=True))
+    size = Column(DECIMAL(20, 8), nullable=False)
+    tp_price = Column(DECIMAL(20, 8))
+    sl_price = Column(DECIMAL(20, 8))
+    unrealized_pnl = Column(DECIMAL(20, 8))
+    realized_pnl = Column(DECIMAL(20, 8))
+    entry_order_id = Column(String(50))
+    sl_order_id = Column(String(50))
+    tp_order_id = Column(String(50))
+    status = Column(String(20), nullable=False, default='open')
+    exit_type = Column(String(10))
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "symbol": self.symbol,
+            "side": self.side,
+            "entry_price": float(self.entry_price) if self.entry_price else None,
+            "entry_time": self.entry_time.isoformat() if self.entry_time else None,
+            "exit_price": float(self.exit_price) if self.exit_price else None,
+            "exit_time": self.exit_time.isoformat() if self.exit_time else None,
+            "size": float(self.size) if self.size else None,
+            "tp_price": float(self.tp_price) if self.tp_price else None,
+            "sl_price": float(self.sl_price) if self.sl_price else None,
+            "unrealized_pnl": float(self.unrealized_pnl) if self.unrealized_pnl else None,
+            "realized_pnl": float(self.realized_pnl) if self.realized_pnl else None,
+            "entry_order_id": self.entry_order_id,
+            "sl_order_id": self.sl_order_id,
+            "tp_order_id": self.tp_order_id,
+            "status": self.status,
+            "exit_type": self.exit_type,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None
+        }
+
 
 def check_db_health() -> bool:
     try:

@@ -52,6 +52,9 @@ backend/static/
 .env.local
 # frontend/.env.production is PUBLIC (only contains domain URL), must be committed for production builds
 
+# Hyperliquid config (contains API keys)
+backend/app/config_hyperliquid.json
+
 # Database
 *.db
 *.sqlite3

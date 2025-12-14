@@ -43,9 +43,6 @@ function TradeHistoryModal({ bot, trades = [], onClose = () => {} }) {
   // Calculate summary stats
   const totalPnL = trades.reduce((sum, t) => sum + (t.pnl || 0), 0);
   const avgPnL = trades.length > 0 ? totalPnL / trades.length : 0;
-  const avgHoldTime = trades.length > 0
-    ? trades.reduce((sum, t) => sum + (t.candles_held || 0), 0) / trades.length
-    : 0;
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -74,7 +71,7 @@ function TradeHistoryModal({ bot, trades = [], onClose = () => {} }) {
         </div>
 
         {/* Summary Stats */}
-        <div className="grid grid-cols-4 gap-4 p-4 border-b border-void-600 bg-void-800/50">
+        <div className="grid grid-cols-3 gap-4 p-4 border-b border-void-600 bg-void-800/50">
           <div>
             <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Total P&L</div>
             <div className={`text-lg font-bold ${totalPnL >= 0 ? 'text-neon-cyan' : 'text-neon-red'}`}>
@@ -85,12 +82,6 @@ function TradeHistoryModal({ bot, trades = [], onClose = () => {} }) {
             <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Avg P&L</div>
             <div className={`text-lg font-bold ${avgPnL >= 0 ? 'text-neon-cyan' : 'text-neon-red'}`}>
               {avgPnL >= 0 ? '+' : ''}${avgPnL.toFixed(2)}
-            </div>
-          </div>
-          <div>
-            <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Avg Hold Time</div>
-            <div className="text-lg font-bold text-gray-300">
-              {avgHoldTime.toFixed(1)} candles
             </div>
           </div>
           <div>
@@ -125,7 +116,6 @@ function TradeHistoryModal({ bot, trades = [], onClose = () => {} }) {
                     <th className="text-right py-2 px-3 text-gray-500 font-bold uppercase tracking-wider">Exit Price</th>
                     <th className="text-right py-2 px-3 text-gray-500 font-bold uppercase tracking-wider">Capital</th>
                     <th className="text-right py-2 px-3 text-gray-500 font-bold uppercase tracking-wider">P&L</th>
-                    <th className="text-center py-2 px-3 text-gray-500 font-bold uppercase tracking-wider">Hold</th>
                     <th className="text-center py-2 px-3 text-gray-500 font-bold uppercase tracking-wider">Exit</th>
                   </tr>
                 </thead>
@@ -160,9 +150,6 @@ function TradeHistoryModal({ bot, trades = [], onClose = () => {} }) {
                         </td>
                         <td className="py-2 px-3 text-right">
                           {formatPnL(trade.pnl, trade.pnl_pct)}
-                        </td>
-                        <td className="py-2 px-3 text-center text-gray-400 font-mono">
-                          {trade.candles_held || 0}
                         </td>
                         <td className="py-2 px-3 text-center">
                           <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${exitBadge.bg} ${exitBadge.text}`}>
