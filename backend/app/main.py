@@ -156,35 +156,12 @@ class OrderFlowZonesResponse(BaseModel):
 
 logger = logging.getLogger(__name__)
 
-# SINGLETON: Global LiveTradingService instance (initialized at startup)
-_live_trading_service = None
-
-def get_live_trading_service():
-    """Get singleton instance of LiveTradingService"""
-    global _live_trading_service
-    if _live_trading_service is None:
-        import json
-        import os
-        config_path = os.path.join(os.path.dirname(__file__), 'config_hyperliquid.json')
-        if os.path.exists(config_path):
-            with open(config_path) as f:
-                config = json.load(f)
-            from app.live_trading_service import LiveTradingService
-            _live_trading_service = LiveTradingService(config)
-            logger.info("[SINGLETON] LiveTradingService initialized once at startup")
-        else:
-            logger.warning("[SINGLETON] config_hyperliquid.json not found - live trading disabled")
-    return _live_trading_service
-
 @app.on_event("startup")
 async def startup_event():
     logger.info("Starting Quant Tools Backend")
 
     if not check_db_health():
         logger.warning("Database health check failed")
-
-    # Initialize singleton LiveTradingService at startup
-    get_live_trading_service()
 
     # MULTI-CONTAINER ARCHITECTURE: Check container mode
     # Modes:
@@ -702,120 +679,8 @@ async def get_bots_equity_bulk(
 # LIVE TRADING ENDPOINTS
 # ============================================================================
 
-@app.get("/api/live/account")
-async def get_live_account():
-    """
-    Get Hyperliquid account info (balance, equity, margin)
-
-    Returns:
-        {
-            "accountValue": float,
-            "totalMarginUsed": float,
-            "equity": float,
-            "unrealizedPnl": float,
-            "timestamp": str
-        }
-    """
-    try:
-        # Use singleton service (initialized at startup)
-        service = get_live_trading_service()
-        if service is None:
-            return {"error": "Live trading service not configured"}, 503
-
-        account_info = service.hl_client.get_account_info()
-
-        # Calculate equity (account value + unrealized PnL)
-        unrealized_pnl = sum(
-            float(pos.get('unrealizedPnl', 0))
-            for pos in account_info['positions']
-        )
-        equity = account_info['accountValue'] + unrealized_pnl
-
-        return {
-            "accountValue": account_info['accountValue'],
-            "totalMarginUsed": account_info['totalMarginUsed'],
-            "equity": equity,
-            "unrealizedPnl": unrealized_pnl,
-            "timestamp": utc_now_iso()
-        }
-    except Exception as e:
-        logging.error(f"Error fetching live account: {e}")
-        return {"error": str(e)}, 500
-
-
-@app.get("/api/live/position")
-async def get_live_position():
-    """
-    Get current open position on Hyperliquid
-
-    Returns:
-        {
-            "has_position": bool,
-            "symbol": str,
-            "side": "LONG" | "SHORT",
-            "size": float,
-            "entry_price": float,
-            "current_price": float,
-            "tp_price": float,
-            "sl_price": float,
-            "unrealized_pnl": float,
-            "pnl_pct": float
-        }
-    """
-    try:
-        # Use singleton service (initialized at startup)
-        service = get_live_trading_service()
-        if service is None:
-            return {"error": "Live trading service not configured"}, 503
-
-        # Get symbol from service config
-        import json
-        import os
-        config_path = os.path.join(os.path.dirname(__file__), 'config_hyperliquid.json')
-        with open(config_path) as f:
-            config = json.load(f)
-        symbol = config.get('symbol', 'BTC')
-
-        # Get account info
-        account_info = service.hl_client.get_account_info()
-
-        # Find BTC position
-        position = None
-        for pos in account_info['positions']:
-            if pos['coin'] == symbol:
-                position = pos
-                break
-
-        if not position:
-            return {"has_position": False}
-
-        # Get current price from latest candle
-        candle = DatabaseService.get_last_finalized_candle(symbol=symbol)
-        current_price = candle['price_close'] if candle else None
-
-        # Get TP/SL from DB trade record
-        open_trade = DatabaseService.get_open_live_trade(symbol=symbol)
-
-        size = float(position['szi'])
-        entry_price = float(position['entryPx'])
-        unrealized_pnl = float(position['unrealizedPnl'])
-        pnl_pct = (unrealized_pnl / (abs(size) * entry_price)) * 100 if entry_price > 0 else 0
-
-        return {
-            "has_position": True,
-            "symbol": symbol,
-            "side": "LONG" if size > 0 else "SHORT",
-            "size": abs(size),
-            "entry_price": entry_price,
-            "current_price": current_price,
-            "tp_price": open_trade['tp_price'] if open_trade else None,
-            "sl_price": open_trade['sl_price'] if open_trade else None,
-            "unrealized_pnl": unrealized_pnl,
-            "pnl_pct": pnl_pct
-        }
-    except Exception as e:
-        logging.error(f"Error fetching live position: {e}")
-        return {"error": str(e)}, 500
+# LIVE TRADING ENDPOINTS DISABLED - Live trading now handled by realtime container
+# Live account/position data now queried from database instead of Hyperliquid API
 
 
 @app.get("/api/live/trades")

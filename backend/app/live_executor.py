@@ -81,10 +81,7 @@ async def live_execution_loop():
             except Exception as e:
                 logger.error(f"Error reloading config: {e}")
 
-            if not is_active:
-                continue
-
-            # Get latest finalized candle
+            # Get latest finalized candle (even if INACTIVE, to detect and log)
             candle = DatabaseService.get_last_finalized_candle(symbol=symbol)
             if not candle:
                 continue
@@ -96,6 +93,11 @@ async def live_execution_loop():
 
             last_candle_id = candle_id
             logger.info(f"[LIVE] New candle detected: ID={candle_id}, timestamp={candle.get('timestamp')}")
+
+            # Skip processing if INACTIVE
+            if not is_active:
+                logger.info(f"[LIVE] Strategy INACTIVE - skipping execution (candle {candle_id})")
+                continue
 
             # Get latest zones
             zones = DatabaseService.get_latest_zones(symbol=symbol)
