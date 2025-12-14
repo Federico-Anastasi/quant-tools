@@ -112,6 +112,23 @@ app.add_middleware(
 
 
 # ============================================================================
+# HYPERLIQUID CLIENT SINGLETON
+# ============================================================================
+
+# Initialize HyperliquidClient once at startup (avoid re-initialization on every API call)
+hl_client = None
+
+try:
+    from app.hyperliquid_client import HyperliquidClient
+    hl_client = HyperliquidClient()
+    logging.info("[HYPERLIQUID] Client initialized successfully")
+except FileNotFoundError:
+    logging.warning("[HYPERLIQUID] Config not found - live trading endpoints will return empty data")
+except Exception as e:
+    logging.error(f"[HYPERLIQUID] Failed to initialize client: {e}")
+
+
+# ============================================================================
 # PYDANTIC MODELS
 # ============================================================================
 
@@ -679,8 +696,71 @@ async def get_bots_equity_bulk(
 # LIVE TRADING ENDPOINTS
 # ============================================================================
 
-# LIVE TRADING ENDPOINTS DISABLED - Live trading now handled by realtime container
-# Live account/position data now queried from database instead of Hyperliquid API
+@app.get("/api/live/account")
+async def get_live_account():
+    """
+    Get Hyperliquid account info (balance, equity, positions)
+
+    Returns:
+        {
+            "accountValue": float,
+            "totalMarginUsed": float,
+            "positions": [...]
+        }
+    """
+    if hl_client is None:
+        return {"accountValue": 0, "totalMarginUsed": 0, "positions": []}
+
+    try:
+        account_info = hl_client.get_account_info()
+        return account_info
+    except Exception as e:
+        logger.error(f"Error fetching Hyperliquid account: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/live/position")
+async def get_live_position():
+    """
+    Get current Hyperliquid position for configured symbol
+
+    Returns:
+        {
+            "coin": "BTC",
+            "szi": float,
+            "entryPx": float,
+            "positionValue": float,
+            "unrealizedPnl": float,
+            "marginUsed": float
+        }
+        or None if no position
+    """
+    if hl_client is None:
+        return None
+
+    try:
+        import json
+        import os
+
+        # Load symbol from config
+        config_path = os.path.join(os.path.dirname(__file__), 'config_hyperliquid.json')
+        with open(config_path) as f:
+            config = json.load(f)
+        symbol = config.get('symbol', 'BTC')
+
+        account_info = hl_client.get_account_info()
+
+        # Find position for symbol
+        for pos in account_info['positions']:
+            if pos['coin'] == symbol:
+                return pos
+
+        return None
+    except FileNotFoundError:
+        return None
+    except Exception as e:
+        logger.error(f"Error fetching Hyperliquid position: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/live/trades")
