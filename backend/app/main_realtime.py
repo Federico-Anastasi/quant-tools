@@ -6,6 +6,7 @@ COMPONENTS:
 - CVD Pipeline (3-minute candle calculation + Redis trigger)
 - Runs Pipeline (directional run detection)
 - Bot Executor (paper trading execution, SINGLETON)
+- Live Executor (Hyperliquid live trading execution, V3 Momentum strategy)
 
 ARCHITECTURE:
 - Runs independently from API container
@@ -19,6 +20,7 @@ from app.websocket_collector import start_collector
 from app.cvd_pipeline import cvd_pipeline_loop
 from app.runs_pipeline import runs_pipeline_loop
 from app.bot_executor import bot_execution_loop
+from app.live_executor import live_execution_loop
 
 # Configure logging
 logging.basicConfig(
@@ -45,7 +47,7 @@ async def main():
     print("=" * 80, flush=True)
 
     logger.info("[REAL-TIME] Container mode: Real-Time Worker")
-    logger.info("[REAL-TIME] Pipelines: WebSocket, CVD, Runs, Bot Executor")
+    logger.info("[REAL-TIME] Pipelines: WebSocket, CVD, Runs, Bot Executor, Live Executor")
 
     try:
         # Start all pipelines concurrently
@@ -54,6 +56,7 @@ async def main():
             cvd_pipeline_loop(),      # 3-min candle calculation
             runs_pipeline_loop(),     # Directional run detection
             bot_execution_loop(),     # Paper trading execution (SINGLETON)
+            live_execution_loop(),    # Live trading execution (V3 Momentum)
             return_exceptions=True    # Continue on pipeline errors
         )
     except Exception as e:
