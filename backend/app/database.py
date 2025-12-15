@@ -534,6 +534,37 @@ class DatabaseService:
 
             return result
 
+    @staticmethod
+    def get_historical_zones(symbol: str, start_time: datetime, end_time: datetime) -> List[Dict]:
+        """Get all zone snapshots within a time range for backtest replay"""
+        with DatabaseService.get_session() as session:
+            zones = session.query(ZoneSnapshot).filter(
+                ZoneSnapshot.symbol == symbol,
+                ZoneSnapshot.timestamp >= start_time,
+                ZoneSnapshot.timestamp <= end_time
+            ).order_by(ZoneSnapshot.timestamp).all()
+
+            result = []
+            for zone in zones:
+                result.append({
+                    'timestamp': zone.timestamp.isoformat(),
+                    'signal_type': zone.signal_type,
+                    'is_long': zone.is_long,
+                    'zone_min': float(zone.zone_min),
+                    'zone_max': float(zone.zone_max),
+                    'sharpe': float(zone.sharpe),
+                    'win_rate': float(zone.win_rate),
+                    'mean_return': float(zone.mean_return),
+                    'n_trades': zone.n_trades,
+                    'tp_pct': float(zone.tp_pct),
+                    'sl_pct': float(zone.sl_pct),
+                    'max_candles': zone.max_candles,
+                    'ci_95_lower': float(zone.ci_95_lower) if zone.ci_95_lower else None,
+                    'ci_95_upper': float(zone.ci_95_upper) if zone.ci_95_upper else None
+                })
+
+            return result
+
     # ========================================================================
     # BOT MANAGEMENT METHODS
     # ========================================================================
