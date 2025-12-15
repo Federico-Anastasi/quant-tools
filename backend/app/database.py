@@ -289,6 +289,10 @@ class BotTrade(Base):
             "pnl": float(self.pnl) if self.pnl else None,
             "pnl_pct": float(self.pnl_pct) if self.pnl_pct else None,
             "status": self.status,
+            "leverage": float(self.leverage) if self.leverage else None,
+            "entry_fee": float(self.entry_fee) if self.entry_fee else None,
+            "exit_fee": float(self.exit_fee) if self.exit_fee else None,
+            "total_fees": float(self.total_fees) if self.total_fees else None,
             "created_at": to_utc_iso(self.created_at),
             "updated_at": to_utc_iso(self.updated_at)
         }
