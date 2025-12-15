@@ -515,15 +515,15 @@ async def check_exit_conditions(trade: Dict, current_candle: Dict, candles_held:
 
     # Check TP (Take Profit)
     if direction == 'LONG' and current_price >= tp_price:
-        return {'exit_type': 'TP', 'exit_price': current_price, 'candles_held': candles_held}
+        return {'exit_type': 'TP', 'exit_price': tp_price, 'candles_held': candles_held}
     elif direction == 'SHORT' and current_price <= tp_price:
-        return {'exit_type': 'TP', 'exit_price': current_price, 'candles_held': candles_held}
+        return {'exit_type': 'TP', 'exit_price': tp_price, 'candles_held': candles_held}
 
-    # Check SL (Stop Loss)
+    # Check SL (Stop Loss) - Use SL price, not current price (simulates stop order execution)
     if direction == 'LONG' and current_price <= sl_price:
-        return {'exit_type': 'SL', 'exit_price': current_price, 'candles_held': candles_held}
+        return {'exit_type': 'SL', 'exit_price': sl_price, 'candles_held': candles_held}
     elif direction == 'SHORT' and current_price >= sl_price:
-        return {'exit_type': 'SL', 'exit_price': current_price, 'candles_held': candles_held}
+        return {'exit_type': 'SL', 'exit_price': sl_price, 'candles_held': candles_held}
 
     # NO TIME BARRIER - positions held until TP/SL
     return None
