@@ -555,8 +555,8 @@ async def exit_position(bot: Dict, trade: Dict, exit_params: Dict, timestamp: da
     position_size = trade['position_size']
     capital_allocated = trade['capital_allocated']
 
-    # Bot leverage and fee configuration (SAME AS BACKFILL)
-    leverage = float(bot.get('leverage', 10.0))
+    # Use leverage from TRADE (not bot) - critical for fixed risk strategies
+    leverage = float(trade.get('leverage', 10.0))
     trading_fee_pct = float(bot.get('trading_fee_pct', 0.04))
 
     # Notional value (market exposure with leverage)
