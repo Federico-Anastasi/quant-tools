@@ -218,7 +218,7 @@ def run_bot_backfill(bot_id: Optional[int] = None):
                 if exit_params:
                     # Exit position
                     exit_type = exit_params['exit_type']
-                    exit_price = exit_params['exit_price']
+                    exit_price = float(exit_params['exit_price'])
 
                     entry_price = float(open_trade['entry_price'])
                     direction = open_trade['direction']
