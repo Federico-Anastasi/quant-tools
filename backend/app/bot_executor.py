@@ -756,16 +756,15 @@ async def bot_execution_loop():
         try:
             await asyncio.sleep(5)
 
-            # CRITICAL FIX: Renew bot executor lock FIRST (before any blocking DB operations)
+            # CRITICAL FIX: Renew bot executor lock EVERY iteration (before any blocking DB operations)
             # This prevents lock expiration if DatabaseService.commit() blocks the event loop
-            current_time = asyncio.get_event_loop().time()
-            if current_time - last_lock_renewal >= 5:
-                if not RedisService.renew_bot_executor_lock(container_id):
-                    logger.error("[BOT EXECUTOR] Lost lock ownership. Exiting.")
-                    print("[BOT EXECUTOR] Lost lock ownership. Exiting.", flush=True)
-                    break
-                last_lock_renewal = current_time
-                logger.debug(f"[BOT EXECUTOR] Lock renewed (container_id={container_id})")
+            # for 80+ seconds (e.g., when processing multiple simultaneous bot exits)
+            if not RedisService.renew_bot_executor_lock(container_id):
+                logger.error("[BOT EXECUTOR] Lost lock ownership. Exiting.")
+                print("[BOT EXECUTOR] Lost lock ownership. Exiting.", flush=True)
+                break
+            last_lock_renewal = asyncio.get_event_loop().time()
+            logger.debug(f"[BOT EXECUTOR] Lock renewed (container_id={container_id})")
 
             # Get latest finalized candle (may block if DB is slow)
             candle = DatabaseService.get_last_finalized_candle()
