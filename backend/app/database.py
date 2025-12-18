@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Generator, List, Optional, Dict, Any
 
-from sqlalchemy import create_engine, Column, BigInteger, String, DECIMAL, SmallInteger, DateTime, Boolean, CHAR, Integer, text
+from sqlalchemy import create_engine, Column, BigInteger, String, DECIMAL, SmallInteger, DateTime, Boolean, CHAR, Integer, text, ARRAY
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import QueuePool
@@ -324,6 +324,27 @@ class BotEquitySnapshot(Base):
             "unrealized_pnl": float(self.unrealized_pnl),
             "open_positions": self.open_positions,
             "created_at": to_utc_iso(self.created_at)
+        }
+
+
+class LOBSnapshot(Base):
+    """LOB density snapshots for historical heatmap visualization"""
+    __tablename__ = "lob_snapshots"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    timestamp = Column(DateTime(timezone=True), nullable=False)
+    symbol = Column(String(10), nullable=False)
+    p_current = Column(DECIMAL(12, 2), nullable=False)
+    price_bins = Column(ARRAY(DECIMAL(12, 2)), nullable=False)
+    v_diff = Column(ARRAY(DECIMAL(12, 6)), nullable=False)
+
+    def to_dict(self):
+        return {
+            "timestamp": to_utc_iso(self.timestamp),
+            "symbol": self.symbol,
+            "p_current": float(self.p_current),
+            "price_bins": [float(p) for p in self.price_bins],
+            "V_diff": [float(v) for v in self.v_diff]  # Keep V_diff in response (camelCase API)
         }
 
 
@@ -832,6 +853,54 @@ class DatabaseService:
         with DatabaseService.get_session() as session:
             trades = session.query(LiveTrade).order_by(LiveTrade.entry_time.desc()).limit(limit).all()
             return [t.to_dict() for t in trades]
+
+    @staticmethod
+    def insert_lob_snapshot(snapshot: Dict) -> int:
+        """
+        Insert LOB snapshot with UPSERT (idempotent)
+
+        Args:
+            snapshot: Dict with timestamp, symbol, p_current, price_bins[], V_diff[]
+
+        Returns:
+            Row count (1 for insert/update)
+        """
+        with DatabaseService.get_session() as session:
+            from sqlalchemy.dialects.postgresql import insert
+
+            stmt = insert(LOBSnapshot).values(snapshot)
+            stmt = stmt.on_conflict_do_update(
+                constraint='unique_lob_snapshot',  # ON CONFLICT (symbol, timestamp)
+                set_={
+                    'p_current': stmt.excluded.p_current,
+                    'price_bins': stmt.excluded.price_bins,
+                    'v_diff': stmt.excluded.v_diff
+                }
+            )
+            result = session.execute(stmt)
+            return result.rowcount
+
+    @staticmethod
+    def get_lob_snapshots(symbol: str, start_time: datetime, end_time: datetime) -> List[Dict]:
+        """
+        Get LOB snapshots for time range query
+
+        Args:
+            symbol: Trading symbol (e.g., "BTC")
+            start_time: Start of time window (timezone-aware datetime)
+            end_time: End of time window (timezone-aware datetime)
+
+        Returns:
+            List of snapshot dicts sorted by timestamp ASC
+        """
+        with DatabaseService.get_session() as session:
+            snapshots = session.query(LOBSnapshot).filter(
+                LOBSnapshot.symbol == symbol,
+                LOBSnapshot.timestamp >= start_time,
+                LOBSnapshot.timestamp <= end_time
+            ).order_by(LOBSnapshot.timestamp.asc()).all()
+
+            return [s.to_dict() for s in snapshots]
 
 
 class LiveTrade(Base):

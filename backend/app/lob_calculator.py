@@ -4,7 +4,6 @@ Maintains EXACT same logic as original endpoint but with 10-50x performance impr
 """
 import asyncio
 import numpy as np
-from scipy.ndimage import gaussian_filter1d
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 import logging
@@ -120,9 +119,6 @@ def _calculate_lob_sync(
     # Compute difference
     V_diff = V_down_profile - V_up_profile
 
-    # Smooth
-    V_diff_smooth = gaussian_filter1d(V_diff, sigma=2)
-
     # Build result dictionary
     lob_data = {
         'timestamp': t0_dt.isoformat().replace('+00:00', 'Z') if '+00:00' in t0_dt.isoformat() else t0_dt.isoformat() + 'Z',
@@ -132,7 +128,6 @@ def _calculate_lob_sync(
         'V_up': V_up_profile.tolist(),
         'V_down': V_down_profile.tolist(),
         'V_diff': V_diff.tolist(),
-        'V_diff_smooth': V_diff_smooth.tolist(),
         'n_runs': n_runs  # Total runs used in calculation
     }
 
@@ -173,6 +168,21 @@ async def calculate_and_cache_lob_density(
 
         # Store in cache
         lob_cache.set(symbol, lob_data, hours=hours, price_bin=price_bin)
+
+        # Store in database (historical snapshot)
+        try:
+            snapshot = {
+                'timestamp': t0_dt,
+                'symbol': symbol,
+                'p_current': lob_data['p_current'],
+                'price_bins': lob_data['price_bins'],
+                'v_diff': lob_data['V_diff']  # Map V_diff to v_diff for database column
+            }
+            DatabaseService.insert_lob_snapshot(snapshot)
+            logger.info(f"[LOB] Snapshot saved to database | {symbol} @ {t0_dt.isoformat()}")
+        except Exception as db_error:
+            logger.error(f"[LOB] Failed to save snapshot to database: {db_error}")
+            # Continue execution even if DB insert fails (cache is still valid)
 
         # Extract metrics from result
         n_bins = len(lob_data['price_bins'])

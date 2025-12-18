@@ -2,8 +2,9 @@
 // BACKTEST CHART - Clone of CVDChart with Trade Overlay
 // ═══════════════════════════════════════════════════════════
 
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useMemo } from 'react';
 import * as echarts from 'echarts';
+import { calculateHistoricalZoneBands } from '../utils/zoneRenderer';
 
 // ────────────────────────────────────────────────────────────
 // CONFIGURATION (Identical to CVDChart)
@@ -75,74 +76,8 @@ const BacktestChart = ({ data, activeTrade, tradeHistory = [], onChartClick, tra
     // ────────────────────────────────────────────────────────────
     // DATA PROCESSING (Simplified - data already processed by parent)
     // ────────────────────────────────────────────────────────────
-
-    /**
-     * Convert historical zones array into markArea bands with temporal ranges
-     * Uses timestamp strings directly (matching xAxis data format)
-     */
-    const calculateHistoricalZoneBands = (zones, signalType, timestamps) => {
-        if (!zones || zones.length === 0 || !timestamps || timestamps.length === 0) return [];
-
-        const bands = [];
-
-        for (let i = 0; i < zones.length; i++) {
-            const zone = zones[i];
-            const zoneData = zone[signalType];
-
-            if (!zoneData) continue;
-
-            const { is_long, zone_min, zone_max } = zoneData;
-
-            // Find the closest timestamp in the data for this zone
-            const zoneTime = new Date(zone.timestamp).getTime();
-            let startIdx = 0;
-            let minDiff = Infinity;
-
-            for (let j = 0; j < timestamps.length; j++) {
-                const candleTime = new Date(timestamps[j]).getTime();
-                const diff = Math.abs(candleTime - zoneTime);
-                if (diff < minDiff) {
-                    minDiff = diff;
-                    startIdx = j;
-                }
-            }
-
-            // End index is either next zone's index or last candle
-            let endIdx = timestamps.length - 1;
-            if (i < zones.length - 1) {
-                const nextZoneTime = new Date(zones[i + 1].timestamp).getTime();
-                minDiff = Infinity;
-                for (let j = startIdx; j < timestamps.length; j++) {
-                    const candleTime = new Date(timestamps[j]).getTime();
-                    const diff = Math.abs(candleTime - nextZoneTime);
-                    if (diff < minDiff) {
-                        minDiff = diff;
-                        endIdx = j;
-                    }
-                }
-            }
-
-            // Use actual timestamp values from the data (not zone timestamps)
-            const startTime = timestamps[startIdx];
-            const endTime = timestamps[endIdx];
-
-            // Primary zone (best performing direction)
-            const primaryColor = is_long ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)';
-            bands.push([
-                { xAxis: startTime, yAxis: zone_min, itemStyle: { color: primaryColor } },
-                { xAxis: endTime, yAxis: zone_max }
-            ]);
-
-            // Symmetric zone (opposite direction)
-            const symColor = is_long ? 'rgba(239, 68, 68, 0.1)' : 'rgba(34, 197, 94, 0.1)';
-            bands.push([
-                { xAxis: startTime, yAxis: -zone_max, itemStyle: { color: symColor } },
-                { xAxis: endTime, yAxis: -zone_min }
-            ]);
-        }
-
-        return bands;
-    };
+    // DATA PROCESSING
+    // ────────────────────────────────────────────────────────────
 
     const processData = (rawData) => {
         if (!rawData.price_ohlc || !rawData.price_ohlc.index) return null;
@@ -767,6 +702,20 @@ const BacktestChart = ({ data, activeTrade, tradeHistory = [], onChartClick, tra
             return;
         }
 
+        // Helper: Find candle index by timestamp (stable across data updates)
+        const findIndexByTimestamp = (timestamp) => {
+            if (!timestamp) return -1;
+            const idx = data.price_ohlc.index.findIndex(ts => ts === timestamp);
+            if (idx === -1) {
+                console.error('[BacktestChart] Timestamp NOT FOUND:', {
+                    searchingFor: timestamp,
+                    availableTimestamps: data.price_ohlc.index.slice(0, 5),
+                    totalAvailable: data.price_ohlc.index.length
+                });
+            }
+            return idx;
+        };
+
         // Collect all trades to render (active + closed)
         const tradesToRender = [];
 
@@ -792,13 +741,19 @@ const BacktestChart = ({ data, activeTrade, tradeHistory = [], onChartClick, tra
 
         try {
             tradesToRender.forEach((trade, idx) => {
-                const { entryIndex, entryPrice, tp, sl, direction, exitIndex } = trade;
+                const { entryTimestamp, entryPrice, tp, sl, direction, exitTimestamp } = trade;
 
-                // If trade has exitIndex (closed), use that; otherwise use last visible candle
-                const endIndex = exitIndex !== undefined ? exitIndex : data.price_ohlc.index.length - 1;
-                const endPrice = exitIndex !== undefined
-                    ? data.price_ohlc.data.close[exitIndex]
-                    : data.price_ohlc.data.close[data.price_ohlc.index.length - 1];
+                // Find indices using timestamp matching (stable across data updates)
+                const entryIndex = findIndexByTimestamp(entryTimestamp);
+                if (entryIndex === -1) return;  // Entry not in visible range, skip trade
+
+                // If trade has exitTimestamp (closed), find that index; otherwise use last visible candle
+                const endIndex = exitTimestamp
+                    ? findIndexByTimestamp(exitTimestamp)
+                    : data.price_ohlc.index.length - 1;
+
+                if (endIndex === -1) return;  // Exit not in visible range (shouldn't happen but safety check)
+                const endPrice = data.price_ohlc.data.close[endIndex];
 
                 // Use chart coordinate system for position calculations
                 const entryCoord = chartInstanceRef.current.convertToPixel(
@@ -923,6 +878,23 @@ const BacktestChart = ({ data, activeTrade, tradeHistory = [], onChartClick, tra
         renderTradeBoxes();
     }, [activeTrade, tradeHistory, data]);
 
+    // Re-render trade boxes on zoom/pan (dataZoom event)
+    useEffect(() => {
+        if (!chartInstanceRef.current) return;
+
+        const handleDataZoom = () => {
+            renderTradeBoxes();
+        };
+
+        chartInstanceRef.current.on('dataZoom', handleDataZoom);
+
+        return () => {
+            if (chartInstanceRef.current) {
+                chartInstanceRef.current.off('dataZoom', handleDataZoom);
+            }
+        };
+    }, [activeTrade, tradeHistory, data]);
+
     // ────────────────────────────────────────────────────────────
     // CURSOR STYLE
     // ────────────────────────────────────────────────────────────
@@ -953,12 +925,12 @@ const BacktestChart = ({ data, activeTrade, tradeHistory = [], onChartClick, tra
         }
     }, [data]);
 
-    // Update zones when historicalZones OR data changes (for backtest)
-    useEffect(() => {
-        if (!chartInstanceRef.current || !historicalZones || historicalZones.length === 0) return;
-        if (!data || !data.price_ohlc || !data.price_ohlc.index) return;
-
-        console.log('[BacktestChart] Updating zones with historical data:', historicalZones.length, 'snapshots');
+    // Memoize zone bands calculation to avoid recalculating on every render
+    // Only recalculate when historicalZones change or when data index changes (new candle)
+    const zoneBands = useMemo(() => {
+        if (!data?.price_ohlc?.index || !historicalZones || historicalZones.length === 0) {
+            return { v2: [], v3: [] };
+        }
 
         // Get timestamps from current data
         const timestamps = data.price_ohlc.index;
@@ -967,10 +939,16 @@ const BacktestChart = ({ data, activeTrade, tradeHistory = [], onChartClick, tra
         const v2Bands = calculateHistoricalZoneBands(historicalZones, 'cumulative_v2', timestamps);
         const v3Bands = calculateHistoricalZoneBands(historicalZones, 'cumulative_v3', timestamps);
 
-        console.log('[BacktestChart] V2 bands:', v2Bands.length, 'V3 bands:', v3Bands.length);
-        if (v2Bands.length > 0) {
-            console.log('[BacktestChart] First V2 band:', v2Bands[0]);
-        }
+        return { v2: v2Bands, v3: v3Bands };
+    }, [
+        historicalZones,
+        data?.price_ohlc?.index?.length,  // Only when number of candles changes
+        data?.price_ohlc?.index?.[data?.price_ohlc?.index?.length - 1]  // Or when last timestamp changes
+    ]);
+
+    // Update zones when zoneBands change
+    useEffect(() => {
+        if (!chartInstanceRef.current) return;
 
         chartInstanceRef.current.setOption({
             series: [
@@ -978,12 +956,12 @@ const BacktestChart = ({ data, activeTrade, tradeHistory = [], onChartClick, tra
                 {}, // CVD (index 1) - no changes
                 {}, // Volume Buy (index 2) - no changes
                 {}, // Volume Sell (index 3) - no changes
-                { markArea: { data: v2Bands, silent: true } }, // V2 Weighted (index 4)
-                { markArea: { data: v3Bands, silent: true } }, // V3 Momentum (index 5)
+                { markArea: { data: zoneBands.v2, silent: true } }, // V2 Weighted (index 4)
+                { markArea: { data: zoneBands.v3, silent: true } }, // V3 Momentum (index 5)
                 {} // V1 Cumulative (index 6) - no changes
             ]
         }, false); // Use merge mode, not replace
-    }, [historicalZones, data]);
+    }, [zoneBands]);
 
     // ────────────────────────────────────────────────────────────
     // RENDER

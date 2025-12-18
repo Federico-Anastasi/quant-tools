@@ -45,11 +45,11 @@ class RedisService:
             hours: Time window in hours (e.g., 720 for 30 days)
             price_bin: Price bin size in USD (e.g., 50)
 
-        TTL: 180 seconds (3 minutes, aligned with CVD pipeline)
+        TTL: 210 seconds (3.5 minutes, adds 30s safety margin for CVD pipeline jitter)
         """
         key = f"lob_cache:{symbol}:{hours}:{price_bin}"
         try:
-            cls.get_client().setex(key, 180, json.dumps(data))
+            cls.get_client().setex(key, 210, json.dumps(data))
             logger.info(f"[REDIS] LOB cache updated: {key}")
         except Exception as e:
             logger.error(f"[REDIS] Failed to set LOB cache: {e}")

@@ -14,7 +14,6 @@ import numpy as np
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from scipy.ndimage import gaussian_filter1d
 
 from app.database import DatabaseService, check_db_health, CVDCandle
 from app.websocket_collector import start_collector, get_collector_status
@@ -157,7 +156,22 @@ class LOBDensityResponse(BaseModel):
     V_up: List[float]
     V_down: List[float]
     V_diff: List[float]
-    V_diff_smooth: List[float]
+
+
+class LOBSnapshotItem(BaseModel):
+    timestamp: str
+    symbol: str
+    p_current: float
+    price_bins: List[float]
+    V_diff: List[float]
+
+
+class LOBSnapshotsResponse(BaseModel):
+    symbol: str
+    start_time: str
+    end_time: str
+    snapshots: List[LOBSnapshotItem]
+    count: int
 
 
 class OrderFlowZonesResponse(BaseModel):
@@ -263,138 +277,41 @@ async def get_candles(
     )
 
 
-@app.get("/api/lob-density", response_model=LOBDensityResponse)
+@app.get("/api/lob-density", response_model=LOBSnapshotsResponse)
 async def get_lob_density(
     symbol: str = Query("BTC"),
-    hours: int = Query(720, ge=1, le=720),  # Default 720h (30 days) - kept for API compatibility
-    price_bin: int = Query(50, ge=20, le=500),  # Default 50 USD bins - kept for API compatibility
-    t0: Optional[str] = Query(None, description="Snapshot timestamp (ISO format)")
+    hours: int = Query(24, ge=1, le=168)  # Default 24h, max 1 week
 ):
     """
-    Get LOB density heatmap data - OPTIMIZED with cache
+    Get LOB density snapshots for historical heatmap visualization
 
-    Data is pre-calculated every 3 minutes when CVD pipeline finalizes a candle.
-    Serves from in-memory cache (~1ms response time) for 99% of requests.
+    Returns array of LOB snapshots from database for the specified time window.
+    Snapshots are generated every 3 minutes by the CVD pipeline.
 
-    Cache is updated automatically by cvd_pipeline.py after each finalized candle.
-    On cache miss (first request after restart), falls back to real-time calculation.
+    Parameters:
+    - symbol: Trading symbol (default: "BTC")
+    - hours: Time window in hours (default: 24, max: 168 = 1 week)
+
+    Response:
+    - snapshots: Array of LOB density snapshots (timestamp, p_current, price_bins, V_diff)
+    - count: Number of snapshots returned
     """
-    from app.lob_cache import lob_cache
-
-    # OPTIMIZATION: Try cache first (most requests hit this path)
-    # Cache is populated by cvd_pipeline.py every 3 minutes with default parameters
-    # Only use cache if parameters match (hours=720, price_bin=50, t0=None)
-    if not t0:  # Only use cache for "current" requests (no custom t0)
-        cached = lob_cache.get(symbol, hours=hours, price_bin=price_bin)
-
-        if cached:
-            # Cache hit - return immediately (<1ms)
-            return LOBDensityResponse(
-                timestamp=cached['timestamp'],
-                symbol=cached['symbol'],
-                p_current=cached['p_current'],
-                price_bins=cached['price_bins'],
-                V_up=cached['V_up'],
-                V_down=cached['V_down'],
-                V_diff=cached['V_diff'],
-                V_diff_smooth=cached['V_diff_smooth']
-            )
-
-    # FALLBACK: Cache miss or custom t0 parameter - calculate on-demand
-    # This preserves original behavior for custom queries and first request after restart
-    logger.info(f"[LOB] Cache miss for {symbol} (t0={t0}) - calculating on-demand")
-
-    # Parse t0 (ORIGINAL LOGIC PRESERVED)
+    from app.database import DatabaseService
     from datetime import timezone
-    if t0:
-        t0_dt = datetime.fromisoformat(t0)
-    else:
-        t0_dt = datetime.now(timezone.utc)
 
-    # Get runs before t0 (ORIGINAL LOGIC PRESERVED)
-    from_time = t0_dt - timedelta(hours=hours)
+    # Calculate time range
+    end_time = datetime.now(timezone.utc)
+    start_time = end_time - timedelta(hours=hours)
 
-    from app.database import DatabaseService, Run
-    with DatabaseService.get_session() as session:
-        runs = session.query(Run).filter(
-            Run.symbol == symbol,
-            Run.t_end < t0_dt,
-            Run.t_end >= from_time
-        ).all()
+    # Query database for snapshots
+    snapshots = DatabaseService.get_lob_snapshots(symbol, start_time, end_time)
 
-        # Get current price at t0 (ORIGINAL LOGIC PRESERVED)
-        last_candle = DatabaseService.get_last_finalized_candle(symbol)
-        if last_candle:
-            p_current = last_candle['price_close']
-        else:
-            p_current = 100000.0
-
-        # Price range (extract all data while in session) (ORIGINAL LOGIC PRESERVED)
-        all_prices = [float(r.price_mid) for r in runs]
-        runs_data = [{
-            'dir': r.dir,
-            'price_start': float(r.price_start),
-            'price_end': float(r.price_end),
-            'V_eff': float(r.V_eff),
-            't_end': r.t_end
-        } for r in runs]
-        if all_prices:
-            p_min = min(all_prices) - 1000
-            p_max = max(all_prices) + 1000
-        else:
-            p_min = p_current - 10000
-            p_max = p_current + 10000
-
-    # Create bins (outside session) (ORIGINAL LOGIC PRESERVED)
-    price_bins = list(np.arange(p_min, p_max, price_bin))
-
-    # Compute V_eff profiles with time decay (ORIGINAL LOGIC PRESERVED)
-    lambda_decay = np.log(2) / (2 * 3600)
-    V_up_profile = []
-    V_down_profile = []
-
-    runs_up = [r for r in runs_data if r['dir'] == 'up']
-    runs_down = [r for r in runs_data if r['dir'] == 'down']
-
-    for p in price_bins:
-        # V_up (ORIGINAL LOGIC PRESERVED)
-        runs_at_p = [r for r in runs_up if
-                     ((r['price_start'] <= p <= r['price_end']) or (r['price_start'] >= p >= r['price_end']))]
-
-        if runs_at_p:
-            weights = [np.exp(-lambda_decay * (t0_dt - r['t_end']).total_seconds()) for r in runs_at_p]
-            V_up = np.average([r['V_eff'] for r in runs_at_p], weights=weights)
-            V_up_profile.append(V_up)
-        else:
-            V_up_profile.append(0.0)
-
-        # V_down (ORIGINAL LOGIC PRESERVED)
-        runs_at_p = [r for r in runs_down if
-                     ((r['price_start'] <= p <= r['price_end']) or (r['price_start'] >= p >= r['price_end']))]
-
-        if runs_at_p:
-            weights = [np.exp(-lambda_decay * (t0_dt - r['t_end']).total_seconds()) for r in runs_at_p]
-            V_down = np.average([r['V_eff'] for r in runs_at_p], weights=weights)
-            V_down_profile.append(V_down)
-        else:
-            V_down_profile.append(0.0)
-
-    V_up_arr = np.array(V_up_profile)
-    V_down_arr = np.array(V_down_profile)
-    V_diff = V_down_arr - V_up_arr
-
-    # Smooth (ORIGINAL LOGIC PRESERVED)
-    V_diff_smooth = gaussian_filter1d(V_diff, sigma=2)
-
-    return LOBDensityResponse(
-        timestamp=t0_dt.isoformat().replace('+00:00', 'Z') if '+00:00' in t0_dt.isoformat() else t0_dt.isoformat() + 'Z',
+    return LOBSnapshotsResponse(
         symbol=symbol,
-        p_current=p_current,
-        price_bins=price_bins,
-        V_up=V_up_arr.tolist(),
-        V_down=V_down_arr.tolist(),
-        V_diff=V_diff.tolist(),
-        V_diff_smooth=V_diff_smooth.tolist()
+        start_time=start_time.isoformat().replace('+00:00', 'Z'),
+        end_time=end_time.isoformat().replace('+00:00', 'Z'),
+        snapshots=snapshots,
+        count=len(snapshots)
     )
 
 

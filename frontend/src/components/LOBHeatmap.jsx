@@ -53,7 +53,6 @@ const LOBHeatmap = ({ data }) => {
       V_up,
       V_down,
       V_diff,
-      V_diff_smooth,
       p_current
     } = data
 
@@ -69,18 +68,18 @@ const LOBHeatmap = ({ data }) => {
     // Prepare heatmap data: [price_index, time_index, V_diff_value]
     // Since we have single snapshot, time_index is always 0
     const heatmapData = price_bins.map((price, idx) => {
-      return [0, idx, V_diff_smooth[idx]]
+      return [0, idx, V_diff[idx]]
     })
 
     // Find min/max V_diff for color scaling
-    const maxAbsVdiff = Math.max(...V_diff_smooth.map(v => Math.abs(v)))
+    const maxAbsVdiff = Math.max(...V_diff.map(v => Math.abs(v)))
 
     // Prepare profile data for right panel (V_diff vs price)
     const profileData = price_bins.map((price, idx) => ({
       price: price,
-      vdiff: V_diff_smooth[idx],
-      isSupport: V_diff_smooth[idx] > 0,
-      isResistance: V_diff_smooth[idx] < 0
+      vdiff: V_diff[idx],
+      isSupport: V_diff[idx] > 0,
+      isResistance: V_diff[idx] < 0
     }))
 
     const option = {
@@ -113,7 +112,7 @@ const LOBHeatmap = ({ data }) => {
             if (params.seriesName === 'LOB Density') {
               const priceIdx = params.data[1]
               const price = price_bins[priceIdx]
-              const vdiff = V_diff_smooth[priceIdx]
+              const vdiff = V_diff[priceIdx]
               const vup = V_up[priceIdx]
               const vdown = V_down[priceIdx]
 

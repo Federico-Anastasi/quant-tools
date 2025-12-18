@@ -1,4 +1,5 @@
 import React from 'react';
+import { calculatePnL } from '../utils/pnlCalculator';
 
 /**
  * TradePanel - Trade inputs, active position display, and KPIs
@@ -25,26 +26,17 @@ function TradePanel({
     });
   };
 
-  // Calculate unrealized P&L for active trade
-  const calculateUnrealizedPnl = () => {
-    if (!activeTrade || !currentPrice) return { gross: 0, fees: 0, net: 0 };
-
-    const { entryPrice, direction, size, leverage, fees } = activeTrade;
-
-    const rawPnl = direction === 'long'
-      ? (currentPrice - entryPrice) / entryPrice * 100
-      : (entryPrice - currentPrice) / entryPrice * 100;
-
-    const leveragedPnl = (rawPnl * leverage / 100) * size;
-    const entryFee = (size * leverage) * (fees / 100);
-    const exitFee = (size * leverage) * (fees / 100);
-    const totalFees = entryFee + exitFee;
-    const netPnl = leveragedPnl - totalFees;
-
-    return { gross: leveragedPnl, fees: totalFees, net: netPnl };
-  };
-
-  const unrealizedPnl = calculateUnrealizedPnl();
+  // Calculate unrealized P&L for active trade using shared utility
+  const unrealizedPnl = activeTrade && currentPrice
+    ? calculatePnL(
+        activeTrade.entryPrice,
+        currentPrice,
+        activeTrade.direction,
+        activeTrade.size,
+        activeTrade.leverage,
+        activeTrade.fees
+      )
+    : { gross: 0, fees: 0, net: 0 };
 
   // ═══════════════════════════════════════════════════════════
   // INDICATOR CARD HELPERS (from IndicatorsPanel)

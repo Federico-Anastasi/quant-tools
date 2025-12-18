@@ -40,7 +40,7 @@ export default function Dashboard() {
     last_update: '--'
   })
   const [uptime, setUptime] = useState('--')
-  const [priceBin, setPriceBin] = useState(50)  // LOB bin size (fixed at 50 for cache optimization)
+  // priceBin removed - now fixed at 50 in backend calculation
 
   const startTimeRef = useRef(Date.now())
   const lastUpdateRef = useRef(Date.now())
@@ -322,16 +322,16 @@ export default function Dashboard() {
 
   const fetchLOBDensity = async () => {
     try {
-      const response = await cachedRequest(`lob-density-${priceBin}`, () =>
+      const response = await cachedRequest(`lob-density-24h`, () =>
         axios.get(`${API_URL}/api/lob-density`, {
           params: {
             symbol: 'BTC',
-            hours: 720,           // Fixed 30 days
-            price_bin: priceBin   // User-controlled bin size
+            hours: 24  // Last 24 hours of snapshots
           }
         })
       )
 
+      // Response format: { symbol, start_time, end_time, snapshots: [...], count }
       setLobData(response.data)
 
     } catch (err) {
@@ -494,8 +494,6 @@ export default function Dashboard() {
                 <LOBChart
                   priceData={chartData}
                   lobData={lobData}
-                  priceBin={priceBin}
-                  onPriceBinChange={setPriceBin}
                 />
               ) : (
                 <div className="flex items-center justify-center h-full">

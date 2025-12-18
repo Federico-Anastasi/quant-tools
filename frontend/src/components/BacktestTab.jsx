@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import axios from 'axios';
 import PlayerControls from './PlayerControls';
 import BacktestChart from './BacktestChart';
 import TradePanel from './TradePanel';
+import { calculatePnL } from '../utils/pnlCalculator';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -38,7 +39,8 @@ function BacktestTab({ candlesData, zonesData }) {
   const totalCandles = candlesData?.candles?.length || 0;
 
   // Slice data for progressive reveal (show only 0 to currentIndex)
-  const getVisibleData = () => {
+  // Memoized to prevent unnecessary re-renders and array allocations
+  const visibleData = useMemo(() => {
     if (!candlesData || !candlesData.candles) return null;
 
     const visibleCandles = candlesData.candles.slice(0, currentIndex + 1);
@@ -84,9 +86,7 @@ function BacktestTab({ candlesData, zonesData }) {
         values: visibleCandles.map(c => c.cumulative_v1 || 0)
       }]
     };
-  };
-
-  const visibleData = getVisibleData();
+  }, [currentIndex, candlesData]);
 
   // Get current candle price for P&L calculations
   const getCurrentPrice = () => {
@@ -143,7 +143,9 @@ function BacktestTab({ candlesData, zonesData }) {
     loadHistoricalZones();
   }, [candlesData]);
 
-  // Find the zone snapshot closest to (but not after) the current candle timestamp
+  // Find the zone snapshot for the current candle
+  // LOGIC: For each candle at time X, show the last zone calculated at time Y <= X
+  // If no zone exists before the candle, use the FIRST available zone (default zone)
   const getCurrentZones = () => {
     if (!currentCandle || !historicalZones || historicalZones.length === 0) {
       return null;
@@ -152,6 +154,8 @@ function BacktestTab({ candlesData, zonesData }) {
     const currentTimestamp = new Date(currentCandle.timestamp).getTime();
 
     // Find the most recent zone snapshot before or at current candle time
+    // Use ±30s tolerance to handle timestamp precision mismatches (zone snapshots are hourly)
+    const TIMESTAMP_TOLERANCE_MS = 30000;  // 30 seconds
     let closestZone = null;
     let closestDiff = Infinity;
 
@@ -160,10 +164,17 @@ function BacktestTab({ candlesData, zonesData }) {
       const diff = currentTimestamp - zoneTimestamp;
 
       // Only consider zones from before or at current candle (not future zones)
-      if (diff >= 0 && diff < closestDiff) {
+      // Allow small negative diff within tolerance (handles timestamp precision issues)
+      if (diff >= -TIMESTAMP_TOLERANCE_MS && diff < closestDiff) {
         closestZone = zone;
         closestDiff = diff;
       }
+    }
+
+    // If no zone found before current candle, use the FIRST zone as default
+    // This ensures zones are ALWAYS visible (there's always a "current" zone)
+    if (!closestZone && historicalZones.length > 0) {
+      closestZone = historicalZones[0];
     }
 
     return closestZone;
@@ -171,17 +182,6 @@ function BacktestTab({ candlesData, zonesData }) {
 
   const currentZones = getCurrentZones();
 
-  // Debug: Log zone changes
-  useEffect(() => {
-    if (currentZones) {
-      console.log('[BacktestTab] Current zones updated:', {
-        timestamp: currentZones.timestamp,
-        v2: currentZones.cumulative_v2 ? `${currentZones.cumulative_v2.zone_min} to ${currentZones.cumulative_v2.zone_max}` : 'N/A',
-        v3: currentZones.cumulative_v3 ? `${currentZones.cumulative_v3.zone_min} to ${currentZones.cumulative_v3.zone_max}` : 'N/A',
-        currentIndex
-      });
-    }
-  }, [currentZones, currentIndex]);
 
   // ═══════════════════════════════════════════════════════════
   // PLAYBACK CONTROLS
@@ -249,24 +249,11 @@ function BacktestTab({ candlesData, zonesData }) {
   // TRADE MANAGEMENT
   // ═══════════════════════════════════════════════════════════
 
-  const calculatePnL = (entry, exit, direction, size, leverage, fees) => {
-    const rawPnl = direction === 'long'
-      ? (exit - entry) / entry * 100
-      : (entry - exit) / entry * 100;
-
-    const leveragedPnl = (rawPnl * leverage / 100) * size;
-    const entryFee = (size * leverage) * (fees / 100);
-    const exitFee = (size * leverage) * (fees / 100);
-    const totalFees = entryFee + exitFee;
-    const netPnl = leveragedPnl - totalFees;
-
-    return { gross: leveragedPnl, fees: totalFees, net: netPnl };
-  };
-
   const closePosition = (exitType, exitPrice, pnl) => {
     const closedTrade = {
       ...activeTrade,
       exitIndex: currentIndex,
+      exitTimestamp: currentCandle?.timestamp || activeTrade.entryTimestamp,  // Store exit timestamp
       exitPrice,
       exitType,
       pnl: pnl.net,
@@ -308,6 +295,7 @@ function BacktestTab({ candlesData, zonesData }) {
 
     setActiveTrade({
       entryIndex: currentIndex,
+      entryTimestamp: currentCandle.timestamp,  // Store timestamp for stable reference
       entryPrice,
       direction,
       tp: tpPrice,

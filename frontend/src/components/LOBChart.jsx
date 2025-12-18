@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as echarts from 'echarts';
 
 /**
@@ -23,6 +23,9 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
   const chartInstanceRef = useRef(null);
   const dataZoomStateRef = useRef(null);  // Preserve zoom state across updates
   const heatmapTimeoutRef = useRef(null);  // Track setTimeout for cleanup
+
+  // Heatmap mode: '1D' (latest snapshot only) or '2D' (temporal evolution)
+  const [heatmapMode, setHeatmapMode] = useState('2D');
 
   // Axis drag state for manual control (both X and Y)
   const axisStateRef = useRef({
@@ -90,20 +93,20 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
       }
     }
 
-    // Extract LOB density data
+    // Extract LOB density data from latest snapshot
+    // Response format: { snapshots: [...], count: N }
+    const latestSnapshot = lobData?.snapshots?.[lobData.snapshots.length - 1] || {};
     const {
       price_bins = [],
-      V_diff_smooth = [],
       V_diff = [],
-      V_up = [],
-      V_down = []
-    } = lobData;
+      p_current: lobP_current
+    } = latestSnapshot;
 
-    // CRITICAL: Use actual current price from latest candle close
-    const p_current = candles.length > 0 ? candles[candles.length - 1][1] : 0;
+    // CRITICAL: Use actual current price from latest candle close (fallback to LOB p_current)
+    const p_current = candles.length > 0 ? candles[candles.length - 1][1] : (lobP_current || 0);
 
-    // Use RAW V_diff (not smoothed) to avoid gaussian artifact
-    const vDiffData = V_diff.length > 0 ? V_diff : V_diff_smooth;
+    // Use V_diff directly (already raw from backend)
+    const vDiffData = V_diff;
 
     if (candles.length === 0 || price_bins.length === 0 || vDiffData.length === 0) {
       return;
@@ -136,83 +139,15 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
     const visiblePriceMin = dataMin - padding;
     const visiblePriceMax = dataMax + padding;
 
-    // Calculate max ONLY for visible bins (critical for correct normalization)
+    // Note: Heatmap data is now processed directly in renderHeatmap() from all snapshots
+    // This supports 2D temporal visualization (time × price)
+
+    // Calculate max abs V_diff for latest snapshot (for profile panels on right side)
     const visibleVdiffValues = vDiffData.filter((_, idx) => {
       const price = price_bins[idx];
       return price >= visiblePriceMin && price <= visiblePriceMax;
     });
-    const maxAbsVdiff = Math.max(...visibleVdiffValues.map(v => Math.abs(v)), 0.0001); // Avoid division by zero
-
-    // Prepare heatmap data
-    const resistanceBars = [];
-    const supportBars = [];
-
-    price_bins.forEach((price, idx) => {
-      const vDiff = vDiffData[idx];
-      const strength = Math.abs(vDiff) / maxAbsVdiff;
-
-      const binHeight = idx < price_bins.length - 1
-        ? price_bins[idx + 1] - price
-        : (idx > 0 ? price_bins[idx] - price_bins[idx - 1] : 50);
-
-      if (price >= p_current && vDiff < 0) {
-        // Resistance zone (above current price with negative vDiff)
-        let r, g, b;
-        if (strength <= 0) {
-          r = 255; g = 255; b = 255;
-        } else if (strength >= 1) {
-          r = 139; g = 0; b = 0;
-        } else {
-          if (strength < 0.33) {
-            const t = strength / 0.33;
-            r = 255;
-            g = 255 - (90 * t);
-            b = 255 * (1 - t);
-          } else if (strength < 0.66) {
-            const t = (strength - 0.33) / 0.33;
-            r = 255 - (16 * t);
-            g = 165 - (97 * t);
-            b = 0 + (68 * t);
-          } else {
-            const t = (strength - 0.66) / 0.34;
-            r = 239 - (100 * t);
-            g = 68 * (1 - t);
-            b = 68 * (1 - t);
-          }
-        }
-        const color = `rgba(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)}, 0.2)`;
-
-        resistanceBars.push({ price, height: binHeight, color, strength, vDiff: Math.abs(vDiff) });
-      } else if (price < p_current && vDiff > 0) {
-        // Support zone (below current price with positive vDiff)
-        let r, g, b;
-        if (strength <= 0) {
-          r = 255; g = 255; b = 255;
-        } else if (strength >= 1) {
-          r = 0; g = 100; b = 0;
-        } else {
-          if (strength < 0.33) {
-            const t = strength / 0.33;
-            r = 255 - (111 * t);
-            g = 255 - (17 * t);
-            b = 255 - (111 * t);
-          } else if (strength < 0.66) {
-            const t = (strength - 0.33) / 0.33;
-            r = 144 - (128 * t);
-            g = 238 - (53 * t);
-            b = 144 - (15 * t);
-          } else {
-            const t = (strength - 0.66) / 0.34;
-            r = 16 * (1 - t);
-            g = 185 - (85 * t);
-            b = 129 * (1 - t);
-          }
-        }
-        const color = `rgba(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)}, 0.2)`;
-
-        supportBars.push({ price, height: binHeight, color, strength, vDiff });
-      }
-    });
+    const maxAbsVdiff = Math.max(...visibleVdiffValues.map(v => Math.abs(v)), 0.0001);
 
     // Use previously calculated price range
     const priceMin = visiblePriceMin;
@@ -540,7 +475,7 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
       }, false);
     }
 
-    // CANVAS HEATMAP RENDERING FUNCTION
+    // CANVAS HEATMAP RENDERING FUNCTION - 2D TEMPORAL VISUALIZATION
     const renderHeatmap = () => {
       // Check if chart is still valid (not disposed)
       if (!chart || chart.isDisposed()) {
@@ -582,25 +517,266 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
         return gridTop + gridHeight * (1 - normalizedPrice); // Inverted: higher price = lower Y
       };
 
-      // Draw resistance bars (red gradient)
-      resistanceBars.forEach(bar => {
-        const yTop = priceToY(bar.price + bar.height);
-        const yBottom = priceToY(bar.price);
-        const rectHeight = yBottom - yTop;
+      // HEATMAP MODE SWITCH: 1D (latest snapshot) or 2D (temporal evolution)
+      const snapshots = lobData?.snapshots || [];
 
-        ctx.fillStyle = bar.color;
-        ctx.fillRect(gridLeft, yTop, gridWidth, rectHeight);
-      });
+      if (snapshots.length === 0 || timestamps.length === 0) {
+        // No data, restore and return
+        ctx.restore();
+        return;
+      }
 
-      // Draw support bars (green gradient)
-      supportBars.forEach(bar => {
-        const yTop = priceToY(bar.price + bar.height);
-        const yBottom = priceToY(bar.price);
-        const rectHeight = yBottom - yTop;
+      if (heatmapMode === '1D') {
+        // ===== 1D MODE: Latest snapshot only (stretched across entire visible width) =====
+        const latestSnapshot = snapshots[snapshots.length - 1];
+        const {
+          price_bins: snapshotPriceBins = [],
+          V_diff: snapshotVdiff = [],
+          p_current: snapshotPCurrent
+        } = latestSnapshot;
 
-        ctx.fillStyle = bar.color;
-        ctx.fillRect(gridLeft, yTop, gridWidth, rectHeight);
-      });
+        // Calculate max abs V_diff for normalization
+        const visibleVdiffValues = snapshotVdiff.filter((_, idx) => {
+          const price = snapshotPriceBins[idx];
+          return price >= currentMin && price <= currentMax;
+        });
+        const maxAbsVdiff = Math.max(...visibleVdiffValues.map(v => Math.abs(v)), 0.0001);
+
+        // Draw heatmap across entire grid width
+        snapshotPriceBins.forEach((price, priceIdx) => {
+          const vDiff = snapshotVdiff[priceIdx];
+
+          if (vDiff === null || vDiff === undefined || vDiff === 0) {
+            return; // Skip empty bins
+          }
+
+          const strength = Math.abs(vDiff) / maxAbsVdiff;
+
+          // Calculate bin height
+          const binHeight = priceIdx < snapshotPriceBins.length - 1
+            ? snapshotPriceBins[priceIdx + 1] - price
+            : (priceIdx > 0 ? snapshotPriceBins[priceIdx] - snapshotPriceBins[priceIdx - 1] : 50);
+
+          // Calculate Y coordinates
+          const yTop = priceToY(price + binHeight);
+          const yBottom = priceToY(price);
+          const rectHeight = yBottom - yTop;
+
+          // Filter by position relative to current price
+          const isAboveCurrentPrice = price >= snapshotPCurrent;
+          const isResistance = isAboveCurrentPrice && vDiff < 0;
+          const isSupport = !isAboveCurrentPrice && vDiff > 0;
+
+          let r, g, b;
+
+          if (isResistance) {
+            // Resistance zone (red gradient)
+            if (strength <= 0) {
+              r = 255; g = 255; b = 255;
+            } else if (strength >= 1) {
+              r = 139; g = 0; b = 0;
+            } else {
+              if (strength < 0.33) {
+                const t = strength / 0.33;
+                r = 255;
+                g = 255 - (90 * t);
+                b = 255 * (1 - t);
+              } else if (strength < 0.66) {
+                const t = (strength - 0.33) / 0.33;
+                r = 255 - (16 * t);
+                g = 165 - (97 * t);
+                b = 0 + (68 * t);
+              } else {
+                const t = (strength - 0.66) / 0.34;
+                r = 239 - (100 * t);
+                g = 68 * (1 - t);
+                b = 68 * (1 - t);
+              }
+            }
+            const color = `rgba(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)}, 0.5)`;
+            ctx.fillStyle = color;
+            ctx.fillRect(gridLeft, yTop, gridWidth, rectHeight);  // Full width
+          } else if (isSupport) {
+            // Support zone (green gradient)
+            if (strength <= 0) {
+              r = 255; g = 255; b = 255;
+            } else if (strength >= 1) {
+              r = 0; g = 100; b = 0;
+            } else {
+              if (strength < 0.33) {
+                const t = strength / 0.33;
+                r = 255 - (111 * t);
+                g = 255 - (17 * t);
+                b = 255 - (111 * t);
+              } else if (strength < 0.66) {
+                const t = (strength - 0.33) / 0.33;
+                r = 144 - (128 * t);
+                g = 238 - (53 * t);
+                b = 144 - (15 * t);
+              } else {
+                const t = (strength - 0.66) / 0.34;
+                r = 16 * (1 - t);
+                g = 185 - (85 * t);
+                b = 129 * (1 - t);
+              }
+            }
+            const color = `rgba(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)}, 0.5)`;
+            ctx.fillStyle = color;
+            ctx.fillRect(gridLeft, yTop, gridWidth, rectHeight);  // Full width
+          }
+        });
+
+      } else {
+        // ===== 2D MODE: Temporal evolution (map snapshots to visible candles) =====
+        // Get current dataZoom state to know which candles are visible
+        const currentOption = chart.getOption();
+        const dataZoom = currentOption.dataZoom?.[0] || {};
+        const startPercent = dataZoom.start || 0;
+        const endPercent = dataZoom.end || 100;
+
+        // Calculate visible candle range
+        const totalCandles = timestamps.length;
+        const startIdx = Math.floor(totalCandles * startPercent / 100);
+        const endIdx = Math.ceil(totalCandles * endPercent / 100);
+        const visibleCandles = endIdx - startIdx;
+
+        // Map each visible candle to nearest snapshot by timestamp
+        const candleToSnapshot = new Map();
+
+        for (let candleIdx = startIdx; candleIdx < endIdx; candleIdx++) {
+          const candleTime = new Date(timestamps[candleIdx]).getTime();
+
+          // Find nearest snapshot by timestamp
+          let nearestSnapshot = null;
+          let minTimeDiff = Infinity;
+
+          snapshots.forEach(snapshot => {
+            const snapshotTime = new Date(snapshot.timestamp).getTime();
+            const timeDiff = Math.abs(candleTime - snapshotTime);
+
+            if (timeDiff < minTimeDiff) {
+              minTimeDiff = timeDiff;
+              nearestSnapshot = snapshot;
+            }
+          });
+
+          if (nearestSnapshot) {
+            candleToSnapshot.set(candleIdx, nearestSnapshot);
+          }
+        }
+
+        // Calculate column width (one column per visible candle)
+        const columnWidth = gridWidth / visibleCandles;
+
+        // Iterate through visible candles and draw their corresponding snapshots
+        for (let candleIdx = startIdx; candleIdx < endIdx; candleIdx++) {
+          const snapshot = candleToSnapshot.get(candleIdx);
+          if (!snapshot) continue;
+
+          const {
+            price_bins: snapshotPriceBins = [],
+            V_diff: snapshotVdiff = [],
+            p_current: snapshotPCurrent
+          } = snapshot;
+
+        // Calculate X position for this candle/column
+        const relativeIdx = candleIdx - startIdx;
+        const columnX = gridLeft + (relativeIdx * columnWidth);
+
+        // Calculate max abs V_diff for this snapshot (for normalization)
+        const visibleVdiffValues = snapshotVdiff.filter((_, idx) => {
+          const price = snapshotPriceBins[idx];
+          return price >= currentMin && price <= currentMax;
+        });
+        const maxAbsVdiff = Math.max(...visibleVdiffValues.map(v => Math.abs(v)), 0.0001);
+
+        // Process each price bin (price dimension)
+        snapshotPriceBins.forEach((price, priceIdx) => {
+          const vDiff = snapshotVdiff[priceIdx];
+
+          if (vDiff === null || vDiff === undefined || vDiff === 0) {
+            return; // Skip empty bins
+          }
+
+          const strength = Math.abs(vDiff) / maxAbsVdiff;
+
+          // Calculate bin height
+          const binHeight = priceIdx < snapshotPriceBins.length - 1
+            ? snapshotPriceBins[priceIdx + 1] - price
+            : (priceIdx > 0 ? snapshotPriceBins[priceIdx] - snapshotPriceBins[priceIdx - 1] : 50);
+
+          // Calculate Y coordinates
+          const yTop = priceToY(price + binHeight);
+          const yBottom = priceToY(price);
+          const rectHeight = yBottom - yTop;
+
+          // Filter by position relative to current price (like before)
+          // Above current price: show only RED (resistance, V_diff < 0)
+          // Below current price: show only GREEN (support, V_diff > 0)
+          const isAboveCurrentPrice = price >= snapshotPCurrent;
+          const isResistance = isAboveCurrentPrice && vDiff < 0;
+          const isSupport = !isAboveCurrentPrice && vDiff > 0;
+
+          let r, g, b;
+
+          if (isResistance) {
+            // Resistance zone (red gradient)
+            if (strength <= 0) {
+              r = 255; g = 255; b = 255;
+            } else if (strength >= 1) {
+              r = 139; g = 0; b = 0;
+            } else {
+              if (strength < 0.33) {
+                const t = strength / 0.33;
+                r = 255;
+                g = 255 - (90 * t);
+                b = 255 * (1 - t);
+              } else if (strength < 0.66) {
+                const t = (strength - 0.33) / 0.33;
+                r = 255 - (16 * t);
+                g = 165 - (97 * t);
+                b = 0 + (68 * t);
+              } else {
+                const t = (strength - 0.66) / 0.34;
+                r = 239 - (100 * t);
+                g = 68 * (1 - t);
+                b = 68 * (1 - t);
+              }
+            }
+            const color = `rgba(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)}, 0.5)`;
+            ctx.fillStyle = color;
+            ctx.fillRect(columnX, yTop, columnWidth, rectHeight);
+          } else if (isSupport) {
+            // Support zone (green gradient)
+            if (strength <= 0) {
+              r = 255; g = 255; b = 255;
+            } else if (strength >= 1) {
+              r = 0; g = 100; b = 0;
+            } else {
+              if (strength < 0.33) {
+                const t = strength / 0.33;
+                r = 255 - (111 * t);
+                g = 255 - (17 * t);
+                b = 255 - (111 * t);
+              } else if (strength < 0.66) {
+                const t = (strength - 0.33) / 0.33;
+                r = 144 - (128 * t);
+                g = 238 - (53 * t);
+                b = 144 - (15 * t);
+              } else {
+                const t = (strength - 0.66) / 0.34;
+                r = 16 * (1 - t);
+                g = 185 - (85 * t);
+                b = 129 * (1 - t);
+              }
+            }
+            const color = `rgba(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)}, 0.5)`;
+            ctx.fillStyle = color;
+            ctx.fillRect(columnX, yTop, columnWidth, rectHeight);
+          }
+        });
+        }  // End 2D mode for loop
+      }  // End heatmapMode switch
 
       // Restore context (remove clipping)
       ctx.restore();
@@ -1199,7 +1375,7 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
       chartDom.removeEventListener('wheel', handleWheel);
       window.removeEventListener('resize', handleResize);
     };
-  }, [priceData, lobData]);
+  }, [priceData, lobData, heatmapMode]);
 
   return (
     <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -1276,6 +1452,84 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
             zIndex: 1
           }}
         />
+
+        {/* Heatmap Mode Toggle - Minimal floating style */}
+        <div style={{
+          position: 'absolute',
+          top: '8px',
+          left: '80px',
+          zIndex: 10,
+          display: 'flex',
+          gap: '2px',
+          backgroundColor: 'rgba(11, 14, 17, 0.85)',
+          backdropFilter: 'blur(4px)',
+          border: '1px solid rgba(42, 46, 57, 0.6)',
+          borderRadius: '3px',
+          padding: '2px'
+        }}>
+          <button
+            onClick={() => setHeatmapMode('1D')}
+            title="1D: Latest snapshot"
+            style={{
+              padding: '3px 8px',
+              fontSize: '9px',
+              fontWeight: '500',
+              backgroundColor: heatmapMode === '1D' ? 'rgba(14, 165, 233, 0.15)' : 'transparent',
+              color: heatmapMode === '1D' ? '#0EA5E9' : '#64748b',
+              border: 'none',
+              borderRadius: '2px',
+              cursor: 'pointer',
+              transition: 'all 0.12s',
+              fontFamily: 'monospace',
+              letterSpacing: '0.5px'
+            }}
+            onMouseEnter={(e) => {
+              if (heatmapMode !== '1D') {
+                e.target.style.color = '#94a3b8';
+                e.target.style.backgroundColor = 'rgba(100, 116, 139, 0.08)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (heatmapMode !== '1D') {
+                e.target.style.color = '#64748b';
+                e.target.style.backgroundColor = 'transparent';
+              }
+            }}
+          >
+            1D
+          </button>
+          <button
+            onClick={() => setHeatmapMode('2D')}
+            title="2D: Temporal evolution"
+            style={{
+              padding: '3px 8px',
+              fontSize: '9px',
+              fontWeight: '500',
+              backgroundColor: heatmapMode === '2D' ? 'rgba(14, 165, 233, 0.15)' : 'transparent',
+              color: heatmapMode === '2D' ? '#0EA5E9' : '#64748b',
+              border: 'none',
+              borderRadius: '2px',
+              cursor: 'pointer',
+              transition: 'all 0.12s',
+              fontFamily: 'monospace',
+              letterSpacing: '0.5px'
+            }}
+            onMouseEnter={(e) => {
+              if (heatmapMode !== '2D') {
+                e.target.style.color = '#94a3b8';
+                e.target.style.backgroundColor = 'rgba(100, 116, 139, 0.08)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (heatmapMode !== '2D') {
+                e.target.style.color = '#64748b';
+                e.target.style.backgroundColor = 'transparent';
+              }
+            }}
+          >
+            2D
+          </button>
+        </div>
       </div>
     </div>
   );
