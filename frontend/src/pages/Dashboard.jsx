@@ -44,6 +44,7 @@ export default function Dashboard() {
 
   const startTimeRef = useRef(Date.now())
   const lastUpdateRef = useRef(Date.now())
+  const activeTabRef = useRef(activeTab)  // Track activeTab in ref for polling interval
 
   // ────────────────────────────────────────────────────────────
   // DATA ADAPTER: Convert API response to CVDChart format
@@ -377,7 +378,7 @@ export default function Dashboard() {
     // Priority 3: LOB density (slower query, only if tab active)
     // Delayed by 50ms to ensure candles + zones complete first
     setTimeout(() => {
-      if (activeTab === 'lob') {
+      if (activeTabRef.current === 'lob') {
         fetchLOBDensity()
       }
     }, 50)
@@ -386,7 +387,7 @@ export default function Dashboard() {
     const dataInterval = setInterval(() => {
       fetchCandles()
       fetchOrderFlowZones()  // Update zones together with candles to keep signals in sync
-      if (activeTab === 'lob') {
+      if (activeTabRef.current === 'lob') {
         fetchLOBDensity()
       }
     }, 6000)
@@ -405,6 +406,11 @@ export default function Dashboard() {
       clearInterval(uiInterval)
     }
   }, [])  // Only run on mount, not on activeTab/priceBin changes
+
+  // Update activeTabRef when activeTab changes (for polling interval)
+  useEffect(() => {
+    activeTabRef.current = activeTab
+  }, [activeTab])
 
   // Fetch LOB when tab changes to LOB
   useEffect(() => {

@@ -84,7 +84,10 @@ function BacktestTab({ candlesData, zonesData }) {
       cumulative_segments: [{
         index: timestamps,
         values: visibleCandles.map(c => c.cumulative_v1 || 0)
-      }]
+      }],
+      signals: {
+        values: visibleCandles.map(c => c.signal || 0)
+      }
     };
   }, [currentIndex, candlesData]);
 

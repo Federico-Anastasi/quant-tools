@@ -22,7 +22,6 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
   const chartRef = useRef(null);
   const chartInstanceRef = useRef(null);
   const dataZoomStateRef = useRef(null);  // Preserve zoom state across updates
-  const heatmapTimeoutRef = useRef(null);  // Track setTimeout for cleanup
 
   // Heatmap mode: '1D' (latest snapshot only) or '2D' (temporal evolution)
   const [heatmapMode, setHeatmapMode] = useState('2D');
@@ -476,6 +475,7 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
     }
 
     // CANVAS HEATMAP RENDERING FUNCTION - 2D TEMPORAL VISUALIZATION
+    // (Defined before usage so we can call it immediately after setOption)
     const renderHeatmap = () => {
       // Check if chart is still valid (not disposed)
       if (!chart || chart.isDisposed()) {
@@ -535,12 +535,27 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
           p_current: snapshotPCurrent
         } = latestSnapshot;
 
-        // Calculate max abs V_diff for normalization
-        const visibleVdiffValues = snapshotVdiff.filter((_, idx) => {
-          const price = snapshotPriceBins[idx];
-          return price >= currentMin && price <= currentMax;
+        // ============================================================
+        // GLOBAL NORMALIZATION: 95th percentile across ALL snapshots
+        // (Same as 2D mode for consistent color scale)
+        // ============================================================
+        const allVdiffValues = [];
+        snapshots.forEach(snapshot => {
+          const { price_bins: bins = [], V_diff: vdiff = [] } = snapshot;
+          vdiff.forEach((v, idx) => {
+            const price = bins[idx];
+            if (price >= currentMin && price <= currentMax && v !== null && v !== undefined && v !== 0) {
+              allVdiffValues.push(Math.abs(v));
+            }
+          });
         });
-        const maxAbsVdiff = Math.max(...visibleVdiffValues.map(v => Math.abs(v)), 0.0001);
+
+        let globalMaxVdiff = 0.0001;
+        if (allVdiffValues.length > 0) {
+          allVdiffValues.sort((a, b) => a - b);
+          const p95Index = Math.floor(allVdiffValues.length * 0.95);
+          globalMaxVdiff = allVdiffValues[p95Index] || 0.0001;
+        }
 
         // Draw heatmap across entire grid width
         snapshotPriceBins.forEach((price, priceIdx) => {
@@ -550,7 +565,7 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
             return; // Skip empty bins
           }
 
-          const strength = Math.abs(vDiff) / maxAbsVdiff;
+          const strength = Math.abs(vDiff) / globalMaxVdiff;
 
           // Calculate bin height
           const binHeight = priceIdx < snapshotPriceBins.length - 1
@@ -562,10 +577,17 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
           const yBottom = priceToY(price);
           const rectHeight = yBottom - yTop;
 
-          // Filter by position relative to current price
+          // Use snapshot's historical price (correct for temporal independence)
           const isAboveCurrentPrice = price >= snapshotPCurrent;
           const isResistance = isAboveCurrentPrice && vDiff < 0;
           const isSupport = !isAboveCurrentPrice && vDiff > 0;
+
+          // CRITICAL: Skip bins where V_diff sign doesn't match expected position
+          // - Above price with V_diff > 0 (green above price) → SKIP
+          // - Below price with V_diff < 0 (red below price) → SKIP
+          if (!isResistance && !isSupport) {
+            return; // Skip invalid combinations
+          }
 
           let r, g, b;
 
@@ -665,6 +687,30 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
           }
         }
 
+        // ============================================================
+        // GLOBAL NORMALIZATION: 95th percentile across ALL snapshots
+        // ============================================================
+        // Collect all V_diff values from all snapshots (within visible price range)
+        const allVdiffValues = [];
+        snapshots.forEach(snapshot => {
+          const { price_bins: bins = [], V_diff: vdiff = [] } = snapshot;
+          vdiff.forEach((v, idx) => {
+            const price = bins[idx];
+            // Only include values within visible price range
+            if (price >= currentMin && price <= currentMax && v !== null && v !== undefined && v !== 0) {
+              allVdiffValues.push(Math.abs(v));
+            }
+          });
+        });
+
+        // Calculate 95th percentile for uniform color scale
+        let globalMaxVdiff = 0.0001; // Fallback minimum
+        if (allVdiffValues.length > 0) {
+          allVdiffValues.sort((a, b) => a - b);
+          const p95Index = Math.floor(allVdiffValues.length * 0.95);
+          globalMaxVdiff = allVdiffValues[p95Index] || 0.0001;
+        }
+
         // Calculate column width (one column per visible candle)
         const columnWidth = gridWidth / visibleCandles;
 
@@ -683,12 +729,8 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
         const relativeIdx = candleIdx - startIdx;
         const columnX = gridLeft + (relativeIdx * columnWidth);
 
-        // Calculate max abs V_diff for this snapshot (for normalization)
-        const visibleVdiffValues = snapshotVdiff.filter((_, idx) => {
-          const price = snapshotPriceBins[idx];
-          return price >= currentMin && price <= currentMax;
-        });
-        const maxAbsVdiff = Math.max(...visibleVdiffValues.map(v => Math.abs(v)), 0.0001);
+        // Use GLOBAL normalization (95th percentile) instead of per-snapshot max
+        // This ensures uniform color scale across all snapshots in the day
 
         // Process each price bin (price dimension)
         snapshotPriceBins.forEach((price, priceIdx) => {
@@ -698,7 +740,7 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
             return; // Skip empty bins
           }
 
-          const strength = Math.abs(vDiff) / maxAbsVdiff;
+          const strength = Math.abs(vDiff) / globalMaxVdiff;
 
           // Calculate bin height
           const binHeight = priceIdx < snapshotPriceBins.length - 1
@@ -710,12 +752,19 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
           const yBottom = priceToY(price);
           const rectHeight = yBottom - yTop;
 
-          // Filter by position relative to current price (like before)
-          // Above current price: show only RED (resistance, V_diff < 0)
-          // Below current price: show only GREEN (support, V_diff > 0)
+          // Use snapshot's historical price (temporal independence)
+          // Above price at time T: show only RED (resistance, V_diff < 0)
+          // Below price at time T: show only GREEN (support, V_diff > 0)
           const isAboveCurrentPrice = price >= snapshotPCurrent;
           const isResistance = isAboveCurrentPrice && vDiff < 0;
           const isSupport = !isAboveCurrentPrice && vDiff > 0;
+
+          // CRITICAL: Skip bins where V_diff sign doesn't match expected position
+          // - Above price with V_diff > 0 (green above price) → SKIP
+          // - Below price with V_diff < 0 (red below price) → SKIP
+          if (!isResistance && !isSupport) {
+            return; // Skip invalid combinations
+          }
 
           let r, g, b;
 
@@ -782,14 +831,18 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
       ctx.restore();
     };
 
-    // Initial render after ECharts finishes
-    // Clear any existing timeout first
-    if (heatmapTimeoutRef.current) {
-      clearTimeout(heatmapTimeoutRef.current);
-    }
-    heatmapTimeoutRef.current = setTimeout(renderHeatmap, 100);
+    // Render heatmap immediately after setOption completes
+    // Use double requestAnimationFrame to ensure ECharts has fully completed rendering
+    // First rAF: layout calculation complete
+    // Second rAF: paint complete and DOM stable
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        renderHeatmap();
+      });
+    });
 
     // Re-render heatmap on dataZoom (pan/zoom)
+    chart.off('dataZoom', renderHeatmap);  // Remove existing listener to avoid duplicates
     chart.on('dataZoom', renderHeatmap);
 
     // CUSTOM AXIS HANDLERS (TradingView style - 1:1 movement)
@@ -1361,12 +1414,8 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
     window.addEventListener('resize', handleResize);
 
     return () => {
-      // Clear pending heatmap timeout
-      if (heatmapTimeoutRef.current) {
-        clearTimeout(heatmapTimeoutRef.current);
-        heatmapTimeoutRef.current = null;
-      }
-
+      // Clean up event listeners
+      chart.off('dataZoom', renderHeatmap);
       chart.off('dataZoom', handleDataZoomEvent);
       zr.off('mousedown', handleMouseDown);
       zr.off('mousemove', handleMouseMove);

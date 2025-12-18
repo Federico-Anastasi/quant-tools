@@ -79,6 +79,47 @@ const BacktestChart = ({ data, activeTrade, tradeHistory = [], onChartClick, tra
     // DATA PROCESSING
     // ────────────────────────────────────────────────────────────
 
+    /**
+     * Calculate font size for signal numbers based on visible candle count (zoom level)
+     * Returns base size in pixels that scales with chart zoom
+     */
+    const calculateBadgeSize = () => {
+        if (!chartInstanceRef.current) return 24; // Default fallback
+
+        try {
+            const option = chartInstanceRef.current.getOption();
+            const dataZoom = option.dataZoom?.[0];
+
+            if (!dataZoom) return 24;
+
+            // Get total number of candles
+            const totalCandles = stateRef.current.rawData?.price_ohlc?.index?.length || 100;
+
+            // Calculate visible candle count based on zoom range
+            const start = dataZoom.start || 0;
+            const end = dataZoom.end || 100;
+            const visiblePercent = (end - start) / 100;
+            const visibleCandles = Math.max(5, totalCandles * visiblePercent);
+
+            // Get chart width (grid area width)
+            const chartWidth = chartInstanceRef.current.getWidth();
+            const gridLeft = 60;
+            const gridRight = 60;
+            const effectiveWidth = chartWidth - gridLeft - gridRight;
+
+            // Calculate candle width in pixels
+            const candleWidth = effectiveWidth / visibleCandles;
+
+            // Badge size = 95% of candle width (approximately same as candle)
+            // Clamp between 12px (min readable) and 50px (max size)
+            const badgeSize = Math.max(12, Math.min(50, candleWidth * 0.95));
+
+            return badgeSize;
+        } catch (e) {
+            return 24; // Fallback
+        }
+    };
+
     const processData = (rawData) => {
         if (!rawData.price_ohlc || !rawData.price_ohlc.index) return null;
 
@@ -93,7 +134,8 @@ const BacktestChart = ({ data, activeTrade, tradeHistory = [], onChartClick, tra
             volumeSell: [],
             cumulative_v1: [],
             cumulative_v2: [],
-            cumulative_v3: []
+            cumulative_v3: [],
+            markers: []
         };
 
         for (let i = 0; i < count; i++) {
@@ -148,6 +190,44 @@ const BacktestChart = ({ data, activeTrade, tradeHistory = [], onChartClick, tra
                 for (let j = 0; j < seg.index.length; j++) v3Map.set(seg.index[j], seg.values[j]);
             });
             timestamps.forEach(ts => processed.cumulative_v3.push(v3Map.get(ts) || 0));
+        }
+
+        // Markers (Classification numbers)
+        if (rawData.signals?.values) {
+            // Fixed offset in price units (adjust based on your asset's typical price range)
+            const fixedOffset = 20; // Fixed distance from candle
+
+            for (let i = 0; i < rawData.signals.values.length; i++) {
+                const sig = rawData.signals.values[i];
+                if (sig === 0) continue;
+                const candle = processed.candles[i];
+                if (!candle) continue;
+
+                // Positive signals: position below candle low
+                // Negative signals: position above candle high
+                const yPosition = sig > 0 ? candle[2] - fixedOffset : candle[3] + fixedOffset;
+
+                // Just colored numbers - no shapes
+                const badgeSize = calculateBadgeSize();
+                const fontSize = Math.max(10, Math.floor(badgeSize * 0.6));  // Larger font for readability
+
+                processed.markers.push({
+                    coord: [i, yPosition],
+                    value: Math.abs(sig).toString(),
+                    itemStyle: {
+                        color: 'transparent'  // No background shape
+                    },
+                    label: {
+                        show: true,
+                        formatter: '{c}',
+                        color: sig > 0 ? CONFIG.COLORS.SIGNAL_UP : CONFIG.COLORS.SIGNAL_DOWN,
+                        fontWeight: 'bold',
+                        fontSize: fontSize
+                    },
+                    symbol: 'circle',
+                    symbolSize: 1  // Minimal invisible dot
+                });
+            }
         }
 
         return processed;
@@ -665,7 +745,7 @@ const BacktestChart = ({ data, activeTrade, tradeHistory = [], onChartClick, tra
                 { min: stateRef.current.yAxisState[5].auto ? null : stateRef.current.yAxisState[5].min, max: stateRef.current.yAxisState[5].auto ? null : stateRef.current.yAxisState[5].max }
             ],
             series: [
-                { data: processed.candles },
+                { data: processed.candles, markPoint: { data: processed.markers } },
                 { data: processed.cvdCandles },
                 { data: processed.volumeBuy },
                 { data: processed.volumeSell },
