@@ -240,6 +240,116 @@ class HyperliquidClient:
             logger.error(f"Error fetching open orders: {e}")
             return []
 
+    def get_user_fills(self, limit=100):
+        """
+        Get recent user fills from Hyperliquid
+        Returns max 100 most recent fills (sorted desc by time)
+
+        Returns:
+            list: [
+                {
+                    "coin": "BTC",
+                    "px": "95234.0",  # Fill price
+                    "sz": "0.5",      # Fill size
+                    "side": "B"|"A",  # Buy/Ask
+                    "time": 1681222254710,  # Unix ms
+                    "oid": 123456,    # Order ID
+                    "closedPnl": "125.5",
+                    "dir": "Close Long",
+                    ...
+                }
+            ]
+        """
+        try:
+            fills = self.info.user_fills(self.address)
+
+            # Return last N fills (most recent)
+            fills = fills[:limit] if fills else []
+
+            logger.info(f"Fetched {len(fills)} user fills")
+            return fills
+
+        except Exception as e:
+            logger.error(f"Error fetching user fills: {e}")
+            return []
+
+    def market_open(self, symbol, is_buy, size, slippage=0.01):
+        """
+        Piazza TRUE MARKET ORDER per aprire posizione
+        Usa il metodo exchange.market_open() senza prezzo fisso
+
+        Args:
+            symbol: Symbol da tradare (es. "BTC")
+            is_buy: True per buy, False per sell
+            size: Size dell'ordine (arrotondato a 5 decimali per BTC)
+            slippage: Slippage tollerance (default 1% = 0.01)
+
+        Returns:
+            dict: {
+                "order_id": str,
+                "status": "ok" | "error",
+                "result": dict
+            }
+        """
+        try:
+            # Round size to correct decimals (BTC: 5 decimals)
+            size = round(float(size), 5)
+
+            logger.info(
+                f"Placing MARKET order: {symbol} {'BUY' if is_buy else 'SELL'} "
+                f"{size} (slippage={slippage*100:.1f}%)"
+            )
+
+            # TRUE market order: px=None, uses best available price
+            result = self.exchange.market_open(
+                symbol,
+                is_buy,
+                size,
+                None,      # px = None → market order
+                slippage   # slippage tolerance
+            )
+
+            if result["status"] == "ok":
+                status_data = result["response"]["data"]["statuses"][0]
+
+                # Extract order ID
+                order_id = None
+                if "filled" in status_data:
+                    filled = status_data["filled"]
+                    order_id = filled["oid"]
+                    avg_px = filled.get("avgPx", "N/A")
+                    total_sz = filled.get("totalSz", size)
+                    logger.info(f"Market order filled: OID={order_id}, Size={total_sz}, AvgPx={avg_px}")
+
+                if order_id:
+                    return {
+                        "order_id": order_id,
+                        "status": "ok",
+                        "result": result
+                    }
+                else:
+                    logger.error(f"Market order status unknown: {status_data}")
+                    return {
+                        "order_id": None,
+                        "status": "error",
+                        "result": result
+                    }
+            else:
+                logger.error(f"Market order failed: {result}")
+                return {
+                    "order_id": None,
+                    "status": "error",
+                    "result": result
+                }
+
+        except Exception as e:
+            logger.error(f"Error placing market order: {e}")
+            return {
+                "order_id": None,
+                "status": "error",
+                "result": {"error": str(e)}
+            }
+
     def set_leverage(self, symbol, leverage, is_cross=True):
         """
         Imposta leverage per un symbol

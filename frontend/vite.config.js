@@ -8,6 +8,7 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 3000,
     strictPort: true,
+    allowedHosts: ['frontend', 'localhost', '.localhost'], // Fix for Vite 5.4+ blocking Docker host headers
     watch: {
       usePolling: true, // Needed for Docker on Windows
     },
