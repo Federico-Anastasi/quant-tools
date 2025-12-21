@@ -616,20 +616,42 @@ async def get_bots_equity_bulk(
 @app.get("/api/live/account")
 async def get_live_account():
     """
-    Get Hyperliquid account info (balance, equity, positions)
+    Get Hyperliquid account info (balance, equity, positions) with session P&L
 
     Returns:
         {
             "accountValue": float,
             "totalMarginUsed": float,
-            "positions": [...]
+            "positions": [...],
+            "sessionPnl": float,       # P&L from first equity snapshot
+            "sessionPnlPct": float,    # P&L percentage
+            "initialEquity": float     # First equity snapshot
         }
     """
     if hl_client is None:
-        return {"accountValue": 0, "totalMarginUsed": 0, "positions": []}
+        return {"accountValue": 0, "totalMarginUsed": 0, "positions": [], "sessionPnl": 0, "sessionPnlPct": 0, "initialEquity": 0}
 
     try:
         account_info = hl_client.get_account_info()
+        current_equity = account_info.get("accountValue", 0)
+
+        # Get first equity snapshot from database (all-time first)
+        snapshots = DatabaseService.get_equity_curve(hours=24*365)  # Get all snapshots
+
+        if snapshots and len(snapshots) > 0:
+            initial_equity = snapshots[0]['equity']
+            session_pnl = current_equity - initial_equity
+            session_pnl_pct = (session_pnl / initial_equity * 100) if initial_equity > 0 else 0
+
+            account_info["sessionPnl"] = session_pnl
+            account_info["sessionPnlPct"] = session_pnl_pct
+            account_info["initialEquity"] = initial_equity
+        else:
+            # No snapshots yet
+            account_info["sessionPnl"] = 0
+            account_info["sessionPnlPct"] = 0
+            account_info["initialEquity"] = current_equity
+
         return account_info
     except Exception as e:
         logger.error(f"Error fetching Hyperliquid account: {e}")
@@ -639,21 +661,27 @@ async def get_live_account():
 @app.get("/api/live/position")
 async def get_live_position():
     """
-    Get current Hyperliquid position for configured symbol
+    Get current Hyperliquid position enriched with database info (TP/SL/entry time)
 
     Returns:
         {
-            "coin": "BTC",
-            "szi": float,
-            "entryPx": float,
-            "positionValue": float,
-            "unrealizedPnl": float,
-            "marginUsed": float
+            "has_position": bool,
+            "side": "LONG" | "SHORT",
+            "size": float,
+            "entry_price": float,
+            "entry_time": str,
+            "current_price": float,
+            "tp_price": float,
+            "sl_price": float,
+            "tp_order_id": str,
+            "sl_order_id": str,
+            "unrealized_pnl": float,
+            "pnl_pct": float
         }
-        or None if no position
+        or {"has_position": false} if no position
     """
     if hl_client is None:
-        return None
+        return {"has_position": False}
 
     try:
         import json
@@ -667,14 +695,73 @@ async def get_live_position():
 
         account_info = hl_client.get_account_info()
 
-        # Find position for symbol
+        # Find position for symbol in Hyperliquid
+        hl_position = None
         for pos in account_info['positions']:
             if pos['coin'] == symbol:
-                return pos
+                hl_position = pos
+                break
 
-        return None
+        # No position on Hyperliquid
+        if not hl_position:
+            return {"has_position": False}
+
+        # Get open trade from database (to fetch TP/SL/entry time)
+        open_trade = DatabaseService.get_open_live_trade(symbol=symbol)
+
+        # Parse Hyperliquid position data
+        szi = float(hl_position.get('szi', 0))
+        entry_px = float(hl_position.get('entryPx', 0))
+        unrealized_pnl = float(hl_position.get('unrealizedPnl', 0))
+
+        # Derive side from size (szi > 0 = LONG, szi < 0 = SHORT)
+        side = "LONG" if szi > 0 else "SHORT"
+        size = abs(szi)
+
+        # Get current price from last candle
+        latest_candle = DatabaseService.get_latest_candle(symbol=symbol)
+        current_price = float(latest_candle['price_close']) if latest_candle else entry_px
+
+        # Calculate P&L percentage
+        if entry_px > 0:
+            if side == "LONG":
+                pnl_pct = ((current_price - entry_px) / entry_px) * 100
+            else:
+                pnl_pct = ((entry_px - current_price) / entry_px) * 100
+        else:
+            pnl_pct = 0.0
+
+        # Build enriched response
+        enriched_position = {
+            "has_position": True,
+            "side": side,
+            "size": size,
+            "entry_price": entry_px,
+            "current_price": current_price,
+            "unrealized_pnl": unrealized_pnl,
+            "pnl_pct": round(pnl_pct, 2),
+            # Defaults if no database trade found
+            "entry_time": None,
+            "tp_price": None,
+            "sl_price": None,
+            "tp_order_id": None,
+            "sl_order_id": None
+        }
+
+        # Enrich with database info if available
+        if open_trade:
+            enriched_position.update({
+                "entry_time": open_trade['entry_time'],
+                "tp_price": float(open_trade['tp_price']) if open_trade.get('tp_price') else None,
+                "sl_price": float(open_trade['sl_price']) if open_trade.get('sl_price') else None,
+                "tp_order_id": open_trade.get('tp_order_id'),
+                "sl_order_id": open_trade.get('sl_order_id')
+            })
+
+        return enriched_position
+
     except FileNotFoundError:
-        return None
+        return {"has_position": False}
     except Exception as e:
         logger.error(f"Error fetching Hyperliquid position: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -719,6 +806,76 @@ async def get_live_trades(limit: int = Query(50, ge=1, le=500)):
         return {"error": str(e)}, 500
 
 
+@app.get("/api/live/equity-curve")
+async def get_equity_curve(hours: int = Query(24, ge=1, le=168)):
+    """
+    Get live account equity curve
+
+    Args:
+        hours: Hours to look back (default 24, max 168 = 1 week)
+
+    Returns:
+        {
+            "snapshots": [
+                {
+                    "timestamp": "2024-12-18T10:00:00Z",
+                    "balance": 10000.0,
+                    "equity": 10250.5,
+                    "unrealized_pnl": 250.5,
+                    "total_margin_used": 500.0
+                }
+            ],
+            "stats": {
+                "current_equity": 10250.5,
+                "initial_equity": 10000.0,
+                "roi_pct": 2.505,
+                "max_equity": 10300.0,
+                "max_drawdown_pct": -1.5
+            }
+        }
+    """
+    try:
+        from fastapi import HTTPException
+
+        snapshots = DatabaseService.get_equity_curve(hours=hours)
+
+        if not snapshots:
+            return {"snapshots": [], "stats": None}
+
+        # Calculate stats
+        equities = [s['equity'] for s in snapshots]
+        current_equity = equities[-1]
+        initial_equity = equities[0]
+        max_equity = max(equities)
+
+        # Drawdown calculation
+        peak = equities[0]
+        max_dd = 0.0
+        for eq in equities:
+            if eq > peak:
+                peak = eq
+            dd = ((eq - peak) / peak) * 100
+            if dd < max_dd:
+                max_dd = dd
+
+        roi_pct = ((current_equity - initial_equity) / initial_equity) * 100 if initial_equity > 0 else 0.0
+
+        return {
+            "snapshots": snapshots,
+            "stats": {
+                "current_equity": current_equity,
+                "initial_equity": initial_equity,
+                "roi_pct": roi_pct,
+                "max_equity": max_equity,
+                "max_drawdown_pct": max_dd
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error fetching equity curve: {e}")
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/")
 async def root():
     response = {
@@ -733,7 +890,8 @@ async def root():
             "leaderboard": "/api/bots/leaderboard",
             "live_account": "/api/live/account",
             "live_position": "/api/live/position",
-            "live_trades": "/api/live/trades"
+            "live_trades": "/api/live/trades",
+            "live_equity_curve": "/api/live/equity-curve"
         }
     }
 

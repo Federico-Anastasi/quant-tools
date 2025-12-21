@@ -4,6 +4,7 @@ SQLAlchemy models and session management
 """
 
 import os
+import logging
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Generator, List, Optional, Dict, Any
@@ -12,6 +13,8 @@ from sqlalchemy import create_engine, Column, BigInteger, String, DECIMAL, Small
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import QueuePool
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================================
@@ -833,8 +836,37 @@ class DatabaseService:
             return trade.to_dict() if trade else None
 
     @staticmethod
-    def close_live_trade(trade_id, exit_price, exit_time, exit_type):
-        """Close trade and calculate P&L"""
+    def get_latest_candle(symbol: str = 'BTC'):
+        """Get most recent candle for symbol"""
+        with DatabaseService.get_session() as session:
+            candle = session.query(CVDCandle).filter(
+                CVDCandle.symbol == symbol
+            ).order_by(CVDCandle.timestamp.desc()).first()
+
+            if not candle:
+                return None
+
+            return {
+                'timestamp': candle.timestamp.isoformat() if candle.timestamp else None,
+                'price_open': float(candle.price_open) if candle.price_open else None,
+                'price_high': float(candle.price_high) if candle.price_high else None,
+                'price_low': float(candle.price_low) if candle.price_low else None,
+                'price_close': float(candle.price_close) if candle.price_close else None
+            }
+
+    @staticmethod
+    def close_live_trade(trade_id, exit_price, exit_time, exit_type, realized_pnl=None, exit_fee=None):
+        """
+        Close trade with exit details
+
+        Args:
+            trade_id: Trade ID to close
+            exit_price: Exit price
+            exit_time: Exit timestamp
+            exit_type: Exit type ('TP', 'SL', 'MANUAL')
+            realized_pnl: Optional realized P&L from Hyperliquid (preferred if available)
+            exit_fee: Optional exit fee from Hyperliquid
+        """
         with DatabaseService.get_session() as session:
             trade = session.query(LiveTrade).filter(LiveTrade.id == trade_id).first()
             if trade:
@@ -842,10 +874,46 @@ class DatabaseService:
                 trade.exit_time = exit_time
                 trade.exit_type = exit_type
                 trade.status = 'closed'
-                price_diff = float(exit_price) - float(trade.entry_price) if trade.side == 'LONG' else float(trade.entry_price) - float(exit_price)
-                trade.realized_pnl = price_diff * float(trade.size)
+                trade.updated_at = datetime.utcnow()
+
+                # Set exit fee if provided
+                if exit_fee is not None:
+                    trade.exit_fee = exit_fee
+
+                # Use Hyperliquid's realized P&L if provided, otherwise calculate
+                if realized_pnl is not None:
+                    trade.realized_pnl = realized_pnl
+                else:
+                    # Fallback calculation
+                    price_diff = float(exit_price) - float(trade.entry_price) if trade.side == 'LONG' else float(trade.entry_price) - float(exit_price)
+                    trade.realized_pnl = price_diff * float(trade.size)
+
+                session.commit()
+                logger.info(f"Trade {trade_id} closed: {exit_type} @ ${exit_price}, P&L=${trade.realized_pnl:.2f}")
+
+    @staticmethod
+    def update_live_trade_entry_fee(order_id: str, entry_fee: float):
+        """
+        Update entry_fee for a trade identified by entry_order_id
+        Called when entry fill arrives via WebSocket
+
+        Args:
+            order_id: Entry order ID from Hyperliquid
+            entry_fee: Entry fee charged by Hyperliquid
+        """
+        with DatabaseService.get_session() as session:
+            trade = session.query(LiveTrade).filter(
+                LiveTrade.entry_order_id == order_id,
+                LiveTrade.status == 'open'
+            ).first()
+
+            if trade:
+                trade.entry_fee = entry_fee
                 trade.updated_at = datetime.utcnow()
                 session.commit()
+                logger.info(f"Trade {trade.id} entry_fee updated: ${entry_fee:.4f}")
+            else:
+                logger.warning(f"No open trade found with entry_order_id={order_id}")
 
     @staticmethod
     def get_live_trades(limit=50):
@@ -853,6 +921,31 @@ class DatabaseService:
         with DatabaseService.get_session() as session:
             trades = session.query(LiveTrade).order_by(LiveTrade.entry_time.desc()).limit(limit).all()
             return [t.to_dict() for t in trades]
+
+    @staticmethod
+    def create_account_snapshot(timestamp, equity, unrealized_pnl, total_margin_used):
+        """Save account snapshot (called every candle)"""
+        with DatabaseService.get_session() as session:
+            snapshot = AccountSnapshot(
+                timestamp=timestamp,
+                equity=equity,
+                unrealized_pnl=unrealized_pnl,
+                total_margin_used=total_margin_used
+            )
+            session.add(snapshot)
+            session.commit()
+            return snapshot.id
+
+    @staticmethod
+    def get_equity_curve(hours=24):
+        """Get equity snapshots for last N hours"""
+        with DatabaseService.get_session() as session:
+            start_time = datetime.utcnow() - timedelta(hours=hours)
+            snapshots = session.query(AccountSnapshot)\
+                .filter(AccountSnapshot.timestamp >= start_time)\
+                .order_by(AccountSnapshot.timestamp.asc())\
+                .all()
+            return [s.to_dict() for s in snapshots]
 
     @staticmethod
     def insert_lob_snapshot(snapshot: Dict) -> int:
@@ -919,6 +1012,8 @@ class LiveTrade(Base):
     sl_price = Column(DECIMAL(20, 8))
     unrealized_pnl = Column(DECIMAL(20, 8))
     realized_pnl = Column(DECIMAL(20, 8))
+    entry_fee = Column(DECIMAL(20, 8))  # Real entry fee from Hyperliquid API
+    exit_fee = Column(DECIMAL(20, 8))   # Real exit fee from Hyperliquid WebSocket
     entry_order_id = Column(String(50))
     sl_order_id = Column(String(50))
     tp_order_id = Column(String(50))
@@ -941,6 +1036,8 @@ class LiveTrade(Base):
             "sl_price": float(self.sl_price) if self.sl_price else None,
             "unrealized_pnl": float(self.unrealized_pnl) if self.unrealized_pnl else None,
             "realized_pnl": float(self.realized_pnl) if self.realized_pnl else None,
+            "entry_fee": float(self.entry_fee) if self.entry_fee else None,
+            "exit_fee": float(self.exit_fee) if self.exit_fee else None,
             "entry_order_id": self.entry_order_id,
             "sl_order_id": self.sl_order_id,
             "tp_order_id": self.tp_order_id,
@@ -948,6 +1045,31 @@ class LiveTrade(Base):
             "exit_type": self.exit_type,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+class AccountSnapshot(Base):
+    """Account equity snapshots for live trading equity curve (every 3min candle)"""
+    __tablename__ = "account_snapshots"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    timestamp = Column(DateTime(timezone=True), nullable=False)
+
+    # Account equity (from Hyperliquid accountValue - already includes unrealized P&L)
+    equity = Column(DECIMAL(20, 8), nullable=False)
+    unrealized_pnl = Column(DECIMAL(20, 8), nullable=False, default=0.00)
+    total_margin_used = Column(DECIMAL(20, 8), nullable=False, default=0.00)
+
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "timestamp": to_utc_iso(self.timestamp),
+            "equity": float(self.equity),
+            "unrealized_pnl": float(self.unrealized_pnl),
+            "total_margin_used": float(self.total_margin_used),
+            "created_at": to_utc_iso(self.created_at)
         }
 
 

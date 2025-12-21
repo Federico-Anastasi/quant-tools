@@ -8,6 +8,7 @@ import LiveChart from './LiveChart'
 import HyperliquidAccountCard from './HyperliquidAccountCard'
 import V3SignalsCard from './V3SignalsCard'
 import LiveTradesTable from './LiveTradesTable'
+import { useDeviceType } from '../hooks/useDeviceType'
 
 const API_URL = import.meta.env.VITE_API_URL || ''
 
@@ -21,14 +22,22 @@ const API_URL = import.meta.env.VITE_API_URL || ''
  */
 function LiveTab({ candlesData, zonesData }) {
   // ────────────────────────────────────────────────────────────
+  // DEVICE DETECTION
+  // ────────────────────────────────────────────────────────────
+  const { isMobile, isTablet } = useDeviceType()
+
+  // ────────────────────────────────────────────────────────────
   // STATE
   // ────────────────────────────────────────────────────────────
 
   const [liveAccount, setLiveAccount] = useState(null)
   const [livePosition, setLivePosition] = useState(null)
   const [liveTrades, setLiveTrades] = useState([])
+  const [historicalZones, setHistoricalZones] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [zonesLoading, setZonesLoading] = useState(true)
+  const [equityCurve, setEquityCurve] = useState(null)
 
   const lastUpdateRef = useRef(Date.now())
 
@@ -72,6 +81,20 @@ function LiveTab({ candlesData, zonesData }) {
       setLiveTrades(response.data.trades || [])
     } catch (err) {
       console.error('[LiveTab] Error fetching trades:', err)
+    }
+  }
+
+  /**
+   * Fetch equity curve data
+   */
+  const fetchEquityCurve = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/api/live/equity-curve`, {
+        params: { hours: 24 }
+      })
+      setEquityCurve(response.data)
+    } catch (err) {
+      console.error('[LiveTab] Error fetching equity curve:', err)
     }
   }
 
@@ -164,13 +187,50 @@ function LiveTab({ candlesData, zonesData }) {
   // LIFECYCLE
   // ────────────────────────────────────────────────────────────
 
+  // Load historical zones when candlesData changes
+  useEffect(() => {
+    const loadHistoricalZones = async () => {
+      if (!candlesData || !candlesData.candles || candlesData.candles.length === 0) {
+        setZonesLoading(false)
+        return
+      }
+
+      try {
+        setZonesLoading(true)
+
+        // Get time range from candlesData
+        const firstCandle = candlesData.candles[0]
+        const lastCandle = candlesData.candles[candlesData.candles.length - 1]
+
+        const response = await axios.get(`${API_URL}/api/historical-zones`, {
+          params: {
+            symbol: 'BTC',
+            start: firstCandle.timestamp,
+            end: lastCandle.timestamp
+          }
+        })
+
+        setHistoricalZones(response.data.zones || [])
+        setZonesLoading(false)
+      } catch (err) {
+        console.error('[LiveTab] Error loading historical zones:', err)
+        setHistoricalZones([])
+        setZonesLoading(false)
+      }
+    }
+
+    loadHistoricalZones()
+  }, [candlesData])
+
   useEffect(() => {
     // Initial load (only live-specific data)
     fetchLiveData()
+    fetchEquityCurve()
 
     // Refresh every 10 seconds (reduced from 5s - live account/position don't change that fast)
     const interval = setInterval(() => {
       fetchLiveData()
+      fetchEquityCurve()
     }, 10000)
 
     return () => clearInterval(interval)
@@ -217,16 +277,20 @@ function LiveTab({ candlesData, zonesData }) {
 
   return (
     <div className="flex flex-col lg:flex-row gap-3 h-full p-3">
-      {/* Left: Charts (70% width on desktop) */}
-      <div className="flex-1 lg:w-[70%] flex flex-col gap-3">
-        {/* Main Chart */}
-        <div className="flex-1 bg-void-800/50 border border-void-600/50 rounded-lg relative min-h-[600px] overflow-hidden">
+      {/* Left: Charts (80% width on desktop) */}
+      <div className="flex-1 lg:w-[80%] flex flex-col gap-3">
+        {/* Main Chart (4 grids integrated: Price, Order Flow, V3 Momentum, Equity) */}
+        <div className={`flex-1 bg-void-800/50 border border-void-600/50 rounded-lg relative overflow-hidden ${
+          isMobile ? 'min-h-[400px]' : isTablet ? 'min-h-[550px]' : 'min-h-[700px]'
+        }`}>
           {chartData ? (
             <LiveChart
               data={chartData}
               zonesData={zonesData}
+              historicalZones={historicalZones}
               position={livePosition}
               trades={liveTrades}
+              equityCurve={equityCurve}
             />
           ) : (
             <div className="flex items-center justify-center h-full">
@@ -241,8 +305,8 @@ function LiveTab({ candlesData, zonesData }) {
         </div>
       </div>
 
-      {/* Right: Cards (30% width on desktop) */}
-      <aside className="w-full lg:w-[30%] flex flex-col gap-3">
+      {/* Right: Cards (20% width on desktop) */}
+      <aside className="w-full lg:w-[20%] flex flex-col gap-3">
         {/* Hyperliquid Account Card */}
         <HyperliquidAccountCard
           account={liveAccount}

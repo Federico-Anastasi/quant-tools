@@ -5,9 +5,51 @@
 import { useRef, useEffect, useMemo } from 'react';
 import * as echarts from 'echarts';
 import { calculateHistoricalZoneBands } from '../utils/zoneRenderer';
+import { useDeviceType } from '../hooks/useDeviceType';
 
 // ────────────────────────────────────────────────────────────
-// CONFIGURATION (Identical to CVDChart)
+// RESPONSIVE GRID CONFIGURATION
+// ────────────────────────────────────────────────────────────
+
+/**
+ * Get responsive grid layouts based on device type
+ * Mobile: 3 grids (Price, OrderFlow, V3) - V2 and V1 hidden
+ * Tablet: All 5 grids with optimized spacing
+ * Desktop: Original 5-grid layout
+ */
+const getResponsiveGrids = (isMobile, isTablet) => {
+    if (isMobile) {
+        // Mobile: Show only Price, OrderFlow, V3 Momentum (hide V2, V1)
+        return [
+            { id: 'price', top: 2, height: 50, axisIndex: [0, 1] },
+            { id: 'vol', top: 54, height: 15, axisIndex: [2] },
+            { id: 'v3', top: 71, height: 17, axisIndex: [3] }
+        ];
+    }
+
+    if (isTablet) {
+        // Tablet: All 5 grids with better spacing
+        return [
+            { id: 'price', top: 2, height: 52, axisIndex: [0, 1] },
+            { id: 'vol', top: 55, height: 9, axisIndex: [2] },
+            { id: 'v2', top: 65, height: 10, axisIndex: [3] },
+            { id: 'v3', top: 76, height: 10, axisIndex: [4] },
+            { id: 'v1', top: 87, height: 10, axisIndex: [5] }
+        ];
+    }
+
+    // Desktop: Original layout
+    return [
+        { id: 'price', top: 2, height: 50, axisIndex: [0, 1] },
+        { id: 'vol', top: 53, height: 10, axisIndex: [2] },
+        { id: 'v2', top: 64, height: 11, axisIndex: [3] },
+        { id: 'v3', top: 76, height: 11, axisIndex: [4] },
+        { id: 'v1', top: 88, height: 9, axisIndex: [5] }
+    ];
+};
+
+// ────────────────────────────────────────────────────────────
+// CONFIGURATION
 // ────────────────────────────────────────────────────────────
 
 const CONFIG = {
@@ -26,13 +68,6 @@ const CONFIG = {
         SIGNAL_UP: '#00ff00',
         SIGNAL_DOWN: '#ff0000'
     },
-    GRIDS: [
-        { id: 'price', top: 2, height: 50, axisIndex: [0, 1] },
-        { id: 'vol', top: 53, height: 10, axisIndex: [2] },
-        { id: 'v2', top: 64, height: 11, axisIndex: [3] },
-        { id: 'v3', top: 76, height: 11, axisIndex: [4] },
-        { id: 'v1', top: 88, height: 9, axisIndex: [5] }
-    ],
     AXIS_WIDTH: 60
 };
 
@@ -40,6 +75,12 @@ const CONFIG = {
  * BacktestChart - Identical to CVDChart with trade box overlay
  */
 const BacktestChart = ({ data, activeTrade, tradeHistory = [], onChartClick, tradeMode, historicalZones = [] }) => {
+    // ────────────────────────────────────────────────────────────
+    // DEVICE DETECTION & RESPONSIVE GRIDS
+    // ────────────────────────────────────────────────────────────
+    const { isMobile, isTablet } = useDeviceType();
+    const GRIDS = useMemo(() => getResponsiveGrids(isMobile, isTablet), [isMobile, isTablet]);
+
     const chartRef = useRef(null);
     const chartInstanceRef = useRef(null);
     const stateRef = useRef({
@@ -310,8 +351,8 @@ const BacktestChart = ({ data, activeTrade, tradeHistory = [], onChartClick, tra
         const getGridIndex = (y) => {
             const height = chartInstanceRef.current.getHeight();
 
-            for (let i = 0; i < CONFIG.GRIDS.length; i++) {
-                const g = CONFIG.GRIDS[i];
+            for (let i = 0; i < GRIDS.length; i++) {
+                const g = GRIDS[i];
                 const topPx = (g.top / 100) * height;
                 const bottomPx = ((g.top + g.height) / 100) * height;
                 if (y >= topPx && y <= bottomPx) return i;
@@ -341,7 +382,7 @@ const BacktestChart = ({ data, activeTrade, tradeHistory = [], onChartClick, tra
                 else if (x > width - 100 || isShift) axisIndex = 0; // Price (right) - increased from 60 to 100
             } else {
                 if (x < 100 || x > width - 100) {
-                    axisIndex = CONFIG.GRIDS[gridIdx].axisIndex[0];
+                    axisIndex = GRIDS[gridIdx].axisIndex[0];
                 }
             }
 
@@ -351,7 +392,7 @@ const BacktestChart = ({ data, activeTrade, tradeHistory = [], onChartClick, tra
             stateRef.current.drag.active = true;
             stateRef.current.drag.axisIndex = axisIndex;
             stateRef.current.drag.startY = y;
-            stateRef.current.drag.gridHeight = (CONFIG.GRIDS[gridIdx].height / 100) * chartInstanceRef.current.getHeight();
+            stateRef.current.drag.gridHeight = (GRIDS[gridIdx].height / 100) * chartInstanceRef.current.getHeight();
 
             const model = chartInstanceRef.current.getModel().getComponent('yAxis', axisIndex);
             const extent = model.axis.scale.getExtent();
@@ -497,7 +538,131 @@ const BacktestChart = ({ data, activeTrade, tradeHistory = [], onChartClick, tra
     };
 
     // ────────────────────────────────────────────────────────────
-    // CHART INITIALIZATION (Identical to CVDChart)
+    // TOUCH INTERACTION (Mobile/Tablet)
+    // ────────────────────────────────────────────────────────────
+
+    const setupTouchInteraction = () => {
+        if (!chartRef.current || !chartInstanceRef.current) return () => {};
+
+        let touchState = {
+            active: false,
+            axisIndex: null,
+            startY: 0,
+            startMin: 0,
+            startMax: 0
+        };
+
+        const getGridIndex = (y) => {
+            const height = chartInstanceRef.current.getHeight();
+            for (let i = 0; i < GRIDS.length; i++) {
+                const g = GRIDS[i];
+                const topPx = (g.top / 100) * height;
+                const bottomPx = ((g.top + g.height) / 100) * height;
+                if (y >= topPx && y <= bottomPx) return i;
+            }
+            return -1;
+        };
+
+        const handleTouchStart = (e) => {
+            if (e.touches.length !== 1) return;
+
+            const touch = e.touches[0];
+            const rect = chartRef.current.getBoundingClientRect();
+            const x = touch.clientX - rect.left;
+            const y = touch.clientY - rect.top;
+            const width = chartInstanceRef.current.getWidth();
+
+            // Check if touch is on Y-axis area (right 60px or left 100px for CVD)
+            const gridIdx = getGridIndex(y);
+            if (gridIdx === -1) return;
+
+            let axisIndex = null;
+            if (gridIdx === 0) {
+                if (x < 100) axisIndex = 1; // CVD (left)
+                else if (x > width - CONFIG.AXIS_WIDTH) axisIndex = 0; // Price (right)
+            } else {
+                if (x < 100 || x > width - CONFIG.AXIS_WIDTH) {
+                    axisIndex = GRIDS[gridIdx].axisIndex[0];
+                }
+            }
+
+            if (axisIndex === null) return;
+
+            e.preventDefault();
+
+            const model = chartInstanceRef.current.getModel().getComponent('yAxis', axisIndex);
+            const extent = model.axis.scale.getExtent();
+
+            touchState = {
+                active: true,
+                axisIndex,
+                startY: y,
+                startMin: extent[0],
+                startMax: extent[1]
+            };
+
+            stateRef.current.yAxisState[axisIndex].auto = false;
+        };
+
+        const handleTouchMove = (e) => {
+            if (!touchState.active || e.touches.length !== 1) return;
+
+            e.preventDefault();
+
+            const touch = e.touches[0];
+            const rect = chartRef.current.getBoundingClientRect();
+            const y = touch.clientY - rect.top;
+            const deltaY = y - touchState.startY;
+
+            const gridIdx = GRIDS.findIndex(g => g.axisIndex[0] === touchState.axisIndex || (g.axisIndex.length > 1 && g.axisIndex.includes(touchState.axisIndex)));
+            if (gridIdx === -1) return;
+
+            const gridHeight = (GRIDS[gridIdx].height / 100) * chartInstanceRef.current.getHeight();
+            const range = touchState.startMax - touchState.startMin;
+            const shift = (range / gridHeight) * deltaY;
+
+            stateRef.current.yAxisState[touchState.axisIndex].min = touchState.startMin + shift;
+            stateRef.current.yAxisState[touchState.axisIndex].max = touchState.startMax + shift;
+
+            // Build yAxis update array based on device type
+            const yAxisUpdates = isMobile
+                ? [
+                    { min: stateRef.current.yAxisState[0].min, max: stateRef.current.yAxisState[0].max },
+                    { min: stateRef.current.yAxisState[1].min, max: stateRef.current.yAxisState[1].max },
+                    { min: stateRef.current.yAxisState[2].min, max: stateRef.current.yAxisState[2].max },
+                    { min: stateRef.current.yAxisState[3].min, max: stateRef.current.yAxisState[3].max }
+                ]
+                : [
+                    { min: stateRef.current.yAxisState[0].min, max: stateRef.current.yAxisState[0].max },
+                    { min: stateRef.current.yAxisState[1].min, max: stateRef.current.yAxisState[1].max },
+                    { min: stateRef.current.yAxisState[2].min, max: stateRef.current.yAxisState[2].max },
+                    { min: stateRef.current.yAxisState[3].min, max: stateRef.current.yAxisState[3].max },
+                    { min: stateRef.current.yAxisState[4].min, max: stateRef.current.yAxisState[4].max },
+                    { min: stateRef.current.yAxisState[5].min, max: stateRef.current.yAxisState[5].max }
+                ];
+
+            chartInstanceRef.current.setOption({ yAxis: yAxisUpdates });
+        };
+
+        const handleTouchEnd = () => {
+            touchState.active = false;
+        };
+
+        chartRef.current.addEventListener('touchstart', handleTouchStart, { passive: false });
+        chartRef.current.addEventListener('touchmove', handleTouchMove, { passive: false });
+        chartRef.current.addEventListener('touchend', handleTouchEnd);
+
+        return () => {
+            if (chartRef.current) {
+                chartRef.current.removeEventListener('touchstart', handleTouchStart);
+                chartRef.current.removeEventListener('touchmove', handleTouchMove);
+                chartRef.current.removeEventListener('touchend', handleTouchEnd);
+            }
+        };
+    };
+
+    // ────────────────────────────────────────────────────────────
+    // CHART INITIALIZATION
     // ────────────────────────────────────────────────────────────
 
     const initializeChart = () => {
@@ -523,64 +688,68 @@ const BacktestChart = ({ data, activeTrade, tradeHistory = [], onChartClick, tra
                 formatter: () => ''
             },
 
-            title: [
-                {
-                    text: 'Price and CVD',
-                    left: 75,
-                    top: '3%',
-                    textStyle: { color: '#8b93a0', fontSize: 11, fontWeight: 'normal' }
-                },
-                {
-                    text: 'Order Flow',
-                    left: 75,
-                    top: '54%',
-                    textStyle: { color: '#8b93a0', fontSize: 11, fontWeight: 'normal' }
-                },
-                {
-                    text: 'V2 Weighted Directional',
-                    left: 75,
-                    top: '65%',
-                    textStyle: { color: '#a855f7', fontSize: 11, fontWeight: 'normal' }
-                },
-                {
-                    text: 'V3 Momentum Directional',
-                    left: 75,
-                    top: '77%',
-                    textStyle: { color: '#00f0ff', fontSize: 11, fontWeight: 'normal' }
-                },
-                {
-                    text: 'V1 Simple Cumulative',
-                    left: 75,
-                    top: '89%',
-                    textStyle: { color: '#fbbf24', fontSize: 11, fontWeight: 'normal' }
+            title: (() => {
+                // Desktop: All 5 titles
+                if (!isMobile && !isTablet) {
+                    return [
+                        { text: 'Price and CVD', left: 75, top: '3%', textStyle: { color: '#8b93a0', fontSize: 11, fontWeight: 'normal' } },
+                        { text: 'Order Flow', left: 75, top: '54%', textStyle: { color: '#8b93a0', fontSize: 11, fontWeight: 'normal' } },
+                        { text: 'V2 Weighted Directional', left: 75, top: '65%', textStyle: { color: '#a855f7', fontSize: 11, fontWeight: 'normal' } },
+                        { text: 'V3 Momentum Directional', left: 75, top: '77%', textStyle: { color: '#00f0ff', fontSize: 11, fontWeight: 'normal' } },
+                        { text: 'V1 Simple Cumulative', left: 75, top: '89%', textStyle: { color: '#fbbf24', fontSize: 11, fontWeight: 'normal' } }
+                    ];
                 }
-            ],
+                // Tablet: All 5 titles with adjusted positions
+                if (isTablet) {
+                    return [
+                        { text: 'Price and CVD', left: 75, top: '3%', textStyle: { color: '#8b93a0', fontSize: 11, fontWeight: 'normal' } },
+                        { text: 'Order Flow', left: 75, top: '56%', textStyle: { color: '#8b93a0', fontSize: 11, fontWeight: 'normal' } },
+                        { text: 'V2 Weighted', left: 75, top: '66%', textStyle: { color: '#a855f7', fontSize: 10, fontWeight: 'normal' } },
+                        { text: 'V3 Momentum', left: 75, top: '77%', textStyle: { color: '#00f0ff', fontSize: 10, fontWeight: 'normal' } },
+                        { text: 'V1 Cumulative', left: 75, top: '88%', textStyle: { color: '#fbbf24', fontSize: 10, fontWeight: 'normal' } }
+                    ];
+                }
+                // Mobile: Only 3 titles (Price, OrderFlow, V3)
+                return [
+                    { text: 'Price and CVD', left: 75, top: '3%', textStyle: { color: '#8b93a0', fontSize: 11, fontWeight: 'normal' } },
+                    { text: 'Order Flow', left: 75, top: '55%', textStyle: { color: '#8b93a0', fontSize: 11, fontWeight: 'normal' } },
+                    { text: 'V3 Momentum', left: 75, top: '72%', textStyle: { color: '#00f0ff', fontSize: 11, fontWeight: 'normal' } }
+                ];
+            })(),
 
             dataZoom: [
                 {
                     type: 'inside',
-                    xAxisIndex: [0, 1, 2, 3, 4],
+                    xAxisIndex: isMobile ? [0, 1, 2] : [0, 1, 2, 3, 4],
                     start: 0,
                     end: 100,
-                    minValueSpan: 5,
-                    zoomOnMouseWheel: true,
-                    moveOnMouseWheel: true,
-                    preventDefaultMouseMove: false
+                    minValueSpan: isMobile ? 3 : 5,
+                    zoomOnMouseWheel: true,  // Abilita sempre zoom con rotella mouse
+                    moveOnMouseWheel: false,
+                    preventDefaultMouseMove: true,
+                    throttle: 100
                 },
                 {
                     type: 'slider',
-                    xAxisIndex: [0, 1, 2, 3, 4],
-                    bottom: 5,
-                    height: 18,
+                    xAxisIndex: isMobile ? [0, 1, 2] : [0, 1, 2, 3, 4],
+                    bottom: isMobile ? 1 : 0.5,
+                    height: isMobile ? 25 : 18,
+                    handleSize: isMobile ? '120%' : '100%',
                     borderColor: '#454d5f',
                     fillerColor: 'rgba(0, 240, 255, 0.1)',
-                    handleStyle: { color: '#00f0ff', borderColor: '#00f0ff' },
-                    textStyle: { color: '#8b93a0' }
+                    handleStyle: {
+                        color: '#00f0ff',
+                        borderColor: '#00f0ff',
+                        borderWidth: isMobile ? 2 : 1
+                    },
+                    moveHandleSize: isMobile ? 10 : 7,
+                    textStyle: { color: '#8b93a0', fontSize: isMobile ? 10 : 11 }
                 }
             ],
 
-            grid: CONFIG.GRIDS.map(g => ({
-                left: 45, right: 45,
+            grid: GRIDS.map(g => ({
+                left: isMobile ? 50 : isTablet ? 48 : 45,
+                right: isMobile ? 50 : isTablet ? 48 : 45,
                 top: g.top + '%',
                 height: g.height + '%',
                 show: true,
@@ -589,11 +758,11 @@ const BacktestChart = ({ data, activeTrade, tradeHistory = [], onChartClick, tra
                 containLabel: false
             })),
 
-            xAxis: [0, 1, 2, 3, 4].map(i => ({
+            xAxis: (isMobile ? [0, 1, 2] : [0, 1, 2, 3, 4]).map(i => ({
                 type: 'category', gridIndex: i, data: [],
                 axisLine: { lineStyle: { color: '#454d5f' } },
                 axisLabel: {
-                    show: i === 4,
+                    show: i === (isMobile ? 2 : 4),  // Show on last grid
                     color: '#8b93a0',
                     fontSize: 10,
                     formatter: (v) => {
@@ -609,11 +778,11 @@ const BacktestChart = ({ data, activeTrade, tradeHistory = [], onChartClick, tra
                         }
                     }
                 },
-                axisTick: { show: i === 4, lineStyle: { color: '#454d5f' } },
+                axisTick: { show: i === (isMobile ? 2 : 4), lineStyle: { color: '#454d5f' } },
                 splitLine: { show: false },
                 axisPointer: {
                     label: {
-                        show: i === 4,
+                        show: i === (isMobile ? 2 : 4),
                         formatter: (params) => {
                             try {
                                 const date = new Date(params.value);
@@ -630,57 +799,96 @@ const BacktestChart = ({ data, activeTrade, tradeHistory = [], onChartClick, tra
                 }
             })),
 
-            yAxis: [
-                { type: 'value', gridIndex: 0, scale: true, position: 'right', axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { color: '#8b93a0', fontSize: 10, formatter: (v) => v.toFixed(0) }, splitLine: { show: false } },
-                { type: 'value', gridIndex: 0, scale: true, position: 'left', axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { show: true, color: CONFIG.COLORS.CVD_UP, fontSize: 10, formatter: (v) => v.toFixed(0) }, splitLine: { lineStyle: { color: '#1e232b' } } },
-                { type: 'value', gridIndex: 1, axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { color: '#8b93a0', fontSize: 10, formatter: (v) => v.toFixed(2) }, splitLine: { lineStyle: { color: '#1e232b' } } },
-                { type: 'value', gridIndex: 2, axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { color: '#a855f7', fontSize: 10, formatter: (v) => v.toFixed(1) }, splitLine: { lineStyle: { color: '#1e232b' } } },
-                { type: 'value', gridIndex: 3, axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { color: '#00f0ff', fontSize: 10, formatter: (v) => v.toFixed(1) }, splitLine: { lineStyle: { color: '#1e232b' } } },
-                { type: 'value', gridIndex: 4, axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { color: '#fbbf24', fontSize: 10, formatter: (v) => v.toFixed(1) }, splitLine: { lineStyle: { color: '#1e232b' } } }
-            ],
-
-            series: [
-                { name: 'Price', type: 'candlestick', data: [], xAxisIndex: 0, yAxisIndex: 0, clip: true, itemStyle: { color: CONFIG.COLORS.PRICE_UP, color0: CONFIG.COLORS.PRICE_DOWN, borderColor: CONFIG.COLORS.PRICE_UP, borderColor0: CONFIG.COLORS.PRICE_DOWN } },
-                { name: 'CVD', type: 'candlestick', data: [], xAxisIndex: 0, yAxisIndex: 1, clip: true, itemStyle: { color: CONFIG.COLORS.CVD_UP, color0: CONFIG.COLORS.CVD_DOWN, borderColor: 'rgba(255, 255, 255, 0.2)', borderColor0: 'rgba(255, 255, 255, 0.2)' } },
-                { name: 'Volume Buy', type: 'bar', data: [], xAxisIndex: 1, yAxisIndex: 2, stack: 'volume', clip: true, itemStyle: { color: CONFIG.COLORS.VOL_UP }, barMaxWidth: 20 },
-                { name: 'Volume Sell', type: 'bar', data: [], xAxisIndex: 1, yAxisIndex: 2, stack: 'volume', clip: true, itemStyle: { color: CONFIG.COLORS.VOL_DOWN }, barMaxWidth: 20 },
-                {
-                    name: 'V2 Weighted',
-                    type: 'line',
-                    data: [],
-                    xAxisIndex: 2,
-                    yAxisIndex: 3,
-                    clip: true,
-                    lineStyle: { color: '#a855f7', width: 2 },
-                    areaStyle: { color: 'rgba(168, 85, 247, 0.15)' },
-                    showSymbol: false,
-                    smooth: 0.3
-                },
-                {
-                    name: 'V3 Momentum',
-                    type: 'line',
-                    data: [],
-                    xAxisIndex: 3,
-                    yAxisIndex: 4,
-                    clip: true,
-                    lineStyle: { color: '#00f0ff', width: 2 },
-                    areaStyle: { color: 'rgba(0, 240, 255, 0.15)' },
-                    showSymbol: false,
-                    smooth: 0.3
-                },
-                {
-                    name: 'V1 Cumulative',
-                    type: 'line',
-                    data: [],
-                    xAxisIndex: 4,
-                    yAxisIndex: 5,
-                    clip: true,
-                    lineStyle: { color: '#fbbf24', width: 2 },
-                    areaStyle: { color: 'rgba(251, 191, 36, 0.15)' },
-                    showSymbol: false,
-                    smooth: 0.3
+            yAxis: (() => {
+                // Mobile: 4 axes (Price, CVD, OrderFlow, V3)
+                if (isMobile) {
+                    return [
+                        { type: 'value', gridIndex: 0, scale: true, position: 'right', axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { color: '#8b93a0', fontSize: 10, formatter: (v) => v.toFixed(0) }, splitLine: { show: false } },
+                        { type: 'value', gridIndex: 0, scale: true, position: 'left', axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { show: true, color: CONFIG.COLORS.CVD_UP, fontSize: 10, formatter: (v) => v.toFixed(0) }, splitLine: { lineStyle: { color: '#1e232b' } } },
+                        { type: 'value', gridIndex: 1, axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { color: '#8b93a0', fontSize: 10, formatter: (v) => v.toFixed(2) }, splitLine: { lineStyle: { color: '#1e232b' } } },
+                        { type: 'value', gridIndex: 2, axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { color: '#00f0ff', fontSize: 10, formatter: (v) => v.toFixed(1) }, splitLine: { lineStyle: { color: '#1e232b' } } }
+                    ];
                 }
-            ]
+                // Desktop/Tablet: All 6 axes
+                return [
+                    { type: 'value', gridIndex: 0, scale: true, position: 'right', axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { color: '#8b93a0', fontSize: 10, formatter: (v) => v.toFixed(0) }, splitLine: { show: false } },
+                    { type: 'value', gridIndex: 0, scale: true, position: 'left', axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { show: true, color: CONFIG.COLORS.CVD_UP, fontSize: 10, formatter: (v) => v.toFixed(0) }, splitLine: { lineStyle: { color: '#1e232b' } } },
+                    { type: 'value', gridIndex: 1, axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { color: '#8b93a0', fontSize: 10, formatter: (v) => v.toFixed(2) }, splitLine: { lineStyle: { color: '#1e232b' } } },
+                    { type: 'value', gridIndex: 2, axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { color: '#a855f7', fontSize: 10, formatter: (v) => v.toFixed(1) }, splitLine: { lineStyle: { color: '#1e232b' } } },
+                    { type: 'value', gridIndex: 3, axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { color: '#00f0ff', fontSize: 10, formatter: (v) => v.toFixed(1) }, splitLine: { lineStyle: { color: '#1e232b' } } },
+                    { type: 'value', gridIndex: 4, axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { color: '#fbbf24', fontSize: 10, formatter: (v) => v.toFixed(1) }, splitLine: { lineStyle: { color: '#1e232b' } } }
+                ];
+            })(),
+
+            series: (() => {
+                // Base series (always shown)
+                const baseSeries = [
+                    { name: 'Price', type: 'candlestick', data: [], xAxisIndex: 0, yAxisIndex: 0, clip: true, itemStyle: { color: CONFIG.COLORS.PRICE_UP, color0: CONFIG.COLORS.PRICE_DOWN, borderColor: CONFIG.COLORS.PRICE_UP, borderColor0: CONFIG.COLORS.PRICE_DOWN } },
+                    { name: 'CVD', type: 'candlestick', data: [], xAxisIndex: 0, yAxisIndex: 1, clip: true, itemStyle: { color: CONFIG.COLORS.CVD_UP, color0: CONFIG.COLORS.CVD_DOWN, borderColor: 'rgba(255, 255, 255, 0.2)', borderColor0: 'rgba(255, 255, 255, 0.2)' } },
+                    { name: 'Volume Buy', type: 'bar', data: [], xAxisIndex: 1, yAxisIndex: 2, stack: 'volume', clip: true, itemStyle: { color: CONFIG.COLORS.VOL_UP }, barMaxWidth: 20 },
+                    { name: 'Volume Sell', type: 'bar', data: [], xAxisIndex: 1, yAxisIndex: 2, stack: 'volume', clip: true, itemStyle: { color: CONFIG.COLORS.VOL_DOWN }, barMaxWidth: 20 }
+                ];
+
+                // Mobile: Only V3 (index 2 on mobile grids)
+                if (isMobile) {
+                    return [
+                        ...baseSeries,
+                        {
+                            name: 'V3 Momentum',
+                            type: 'line',
+                            data: [],
+                            xAxisIndex: 2,
+                            yAxisIndex: 3,
+                            clip: true,
+                            lineStyle: { color: '#00f0ff', width: 2 },
+                            areaStyle: { color: 'rgba(0, 240, 255, 0.15)' },
+                            showSymbol: false,
+                            smooth: 0.3
+                        }
+                    ];
+                }
+
+                // Desktop/Tablet: All series (V2, V3, V1)
+                return [
+                    ...baseSeries,
+                    {
+                        name: 'V2 Weighted',
+                        type: 'line',
+                        data: [],
+                        xAxisIndex: 2,
+                        yAxisIndex: 3,
+                        clip: true,
+                        lineStyle: { color: '#a855f7', width: 2 },
+                        areaStyle: { color: 'rgba(168, 85, 247, 0.15)' },
+                        showSymbol: false,
+                        smooth: 0.3
+                    },
+                    {
+                        name: 'V3 Momentum',
+                        type: 'line',
+                        data: [],
+                        xAxisIndex: 3,
+                        yAxisIndex: 4,
+                        clip: true,
+                        lineStyle: { color: '#00f0ff', width: 2 },
+                        areaStyle: { color: 'rgba(0, 240, 255, 0.15)' },
+                        showSymbol: false,
+                        smooth: 0.3
+                    },
+                    {
+                        name: 'V1 Cumulative',
+                        type: 'line',
+                        data: [],
+                        xAxisIndex: 4,
+                        yAxisIndex: 5,
+                        clip: true,
+                        lineStyle: { color: '#fbbf24', width: 2 },
+                        areaStyle: { color: 'rgba(251, 191, 36, 0.15)' },
+                        showSymbol: false,
+                        smooth: 0.3
+                    }
+                ];
+            })()
         };
 
         chartInstanceRef.current.setOption(option);
@@ -700,6 +908,12 @@ const BacktestChart = ({ data, activeTrade, tradeHistory = [], onChartClick, tra
             }
         });
 
+        // Setup touch interactions for mobile/tablet
+        let touchCleanup = null;
+        if (isMobile || isTablet) {
+            touchCleanup = setupTouchInteraction();
+        }
+
         // Window resize
         const handleResize = () => {
             chartInstanceRef.current && chartInstanceRef.current.resize();
@@ -708,6 +922,7 @@ const BacktestChart = ({ data, activeTrade, tradeHistory = [], onChartClick, tra
 
         return () => {
             window.removeEventListener('resize', handleResize);
+            if (touchCleanup) touchCleanup();
         };
     };
 
@@ -729,30 +944,51 @@ const BacktestChart = ({ data, activeTrade, tradeHistory = [], onChartClick, tra
         }
 
         const option = {
-            xAxis: [
-                { data: processed.timestamps },
-                { data: processed.timestamps },
-                { data: processed.timestamps },
-                { data: processed.timestamps },
-                { data: processed.timestamps }
-            ],
-            yAxis: [
-                { min: stateRef.current.yAxisState[0].auto ? null : stateRef.current.yAxisState[0].min, max: stateRef.current.yAxisState[0].auto ? null : stateRef.current.yAxisState[0].max },
-                { min: stateRef.current.yAxisState[1].auto ? null : stateRef.current.yAxisState[1].min, max: stateRef.current.yAxisState[1].auto ? null : stateRef.current.yAxisState[1].max },
-                { min: stateRef.current.yAxisState[2].auto ? null : stateRef.current.yAxisState[2].min, max: stateRef.current.yAxisState[2].auto ? null : stateRef.current.yAxisState[2].max },
-                { min: stateRef.current.yAxisState[3].auto ? null : stateRef.current.yAxisState[3].min, max: stateRef.current.yAxisState[3].auto ? null : stateRef.current.yAxisState[3].max },
-                { min: stateRef.current.yAxisState[4].auto ? null : stateRef.current.yAxisState[4].min, max: stateRef.current.yAxisState[4].auto ? null : stateRef.current.yAxisState[4].max },
-                { min: stateRef.current.yAxisState[5].auto ? null : stateRef.current.yAxisState[5].min, max: stateRef.current.yAxisState[5].auto ? null : stateRef.current.yAxisState[5].max }
-            ],
-            series: [
-                { data: processed.candles, markPoint: { data: processed.markers } },
-                { data: processed.cvdCandles },
-                { data: processed.volumeBuy },
-                { data: processed.volumeSell },
-                { data: processed.cumulative_v2 || [] },
-                { data: processed.cumulative_v3 || [] },
-                { data: processed.cumulative_v1 || [] }
-            ]
+            xAxis: isMobile
+                ? [
+                    { data: processed.timestamps },
+                    { data: processed.timestamps },
+                    { data: processed.timestamps }
+                ]
+                : [
+                    { data: processed.timestamps },
+                    { data: processed.timestamps },
+                    { data: processed.timestamps },
+                    { data: processed.timestamps },
+                    { data: processed.timestamps }
+                ],
+            yAxis: isMobile
+                ? [
+                    { min: stateRef.current.yAxisState[0].auto ? null : stateRef.current.yAxisState[0].min, max: stateRef.current.yAxisState[0].auto ? null : stateRef.current.yAxisState[0].max },
+                    { min: stateRef.current.yAxisState[1].auto ? null : stateRef.current.yAxisState[1].min, max: stateRef.current.yAxisState[1].auto ? null : stateRef.current.yAxisState[1].max },
+                    { min: stateRef.current.yAxisState[2].auto ? null : stateRef.current.yAxisState[2].min, max: stateRef.current.yAxisState[2].auto ? null : stateRef.current.yAxisState[2].max },
+                    { min: stateRef.current.yAxisState[3].auto ? null : stateRef.current.yAxisState[3].min, max: stateRef.current.yAxisState[3].auto ? null : stateRef.current.yAxisState[3].max }
+                ]
+                : [
+                    { min: stateRef.current.yAxisState[0].auto ? null : stateRef.current.yAxisState[0].min, max: stateRef.current.yAxisState[0].auto ? null : stateRef.current.yAxisState[0].max },
+                    { min: stateRef.current.yAxisState[1].auto ? null : stateRef.current.yAxisState[1].min, max: stateRef.current.yAxisState[1].auto ? null : stateRef.current.yAxisState[1].max },
+                    { min: stateRef.current.yAxisState[2].auto ? null : stateRef.current.yAxisState[2].min, max: stateRef.current.yAxisState[2].auto ? null : stateRef.current.yAxisState[2].max },
+                    { min: stateRef.current.yAxisState[3].auto ? null : stateRef.current.yAxisState[3].min, max: stateRef.current.yAxisState[3].auto ? null : stateRef.current.yAxisState[3].max },
+                    { min: stateRef.current.yAxisState[4].auto ? null : stateRef.current.yAxisState[4].min, max: stateRef.current.yAxisState[4].auto ? null : stateRef.current.yAxisState[4].max },
+                    { min: stateRef.current.yAxisState[5].auto ? null : stateRef.current.yAxisState[5].min, max: stateRef.current.yAxisState[5].auto ? null : stateRef.current.yAxisState[5].max }
+                ],
+            series: isMobile
+                ? [
+                    { data: processed.candles, markPoint: { data: processed.markers } },
+                    { data: processed.cvdCandles },
+                    { data: processed.volumeBuy },
+                    { data: processed.volumeSell },
+                    { data: processed.cumulative_v3 || [] }
+                ]
+                : [
+                    { data: processed.candles, markPoint: { data: processed.markers } },
+                    { data: processed.cvdCandles },
+                    { data: processed.volumeBuy },
+                    { data: processed.volumeSell },
+                    { data: processed.cumulative_v2 || [] },
+                    { data: processed.cumulative_v3 || [] },
+                    { data: processed.cumulative_v1 || [] }
+                ]
         };
 
         chartInstanceRef.current.setOption(option, false);
@@ -1030,18 +1266,32 @@ const BacktestChart = ({ data, activeTrade, tradeHistory = [], onChartClick, tra
     useEffect(() => {
         if (!chartInstanceRef.current) return;
 
-        chartInstanceRef.current.setOption({
-            series: [
-                {}, // Price (index 0) - no changes
-                {}, // CVD (index 1) - no changes
-                {}, // Volume Buy (index 2) - no changes
-                {}, // Volume Sell (index 3) - no changes
-                { markArea: { data: zoneBands.v2, silent: true } }, // V2 Weighted (index 4)
-                { markArea: { data: zoneBands.v3, silent: true } }, // V3 Momentum (index 5)
-                {} // V1 Cumulative (index 6) - no changes
-            ]
-        }, false); // Use merge mode, not replace
-    }, [zoneBands]);
+        // Mobile: Only V3 zones (series index 4)
+        // Desktop: V2 (index 4), V3 (index 5)
+        if (isMobile) {
+            chartInstanceRef.current.setOption({
+                series: [
+                    {}, // Price (index 0) - no changes
+                    {}, // CVD (index 1) - no changes
+                    {}, // Volume Buy (index 2) - no changes
+                    {}, // Volume Sell (index 3) - no changes
+                    { markArea: { data: zoneBands.v3, silent: true } } // V3 Momentum (index 4 on mobile)
+                ]
+            }, false);
+        } else {
+            chartInstanceRef.current.setOption({
+                series: [
+                    {}, // Price (index 0) - no changes
+                    {}, // CVD (index 1) - no changes
+                    {}, // Volume Buy (index 2) - no changes
+                    {}, // Volume Sell (index 3) - no changes
+                    { markArea: { data: zoneBands.v2, silent: true } }, // V2 Weighted (index 4)
+                    { markArea: { data: zoneBands.v3, silent: true } }, // V3 Momentum (index 5)
+                    {} // V1 Cumulative (index 6) - no changes
+                ]
+            }, false);
+        }
+    }, [zoneBands, isMobile]);
 
     // ────────────────────────────────────────────────────────────
     // RENDER

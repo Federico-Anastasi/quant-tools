@@ -4,6 +4,7 @@ import PlayerControls from './PlayerControls';
 import BacktestChart from './BacktestChart';
 import TradePanel from './TradePanel';
 import { calculatePnL } from '../utils/pnlCalculator';
+import { useDeviceType } from '../hooks/useDeviceType';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -12,6 +13,10 @@ const API_URL = import.meta.env.VITE_API_URL || '';
  * Progressive candle reveal + interactive trade entry/exit
  */
 function BacktestTab({ candlesData, zonesData }) {
+  // ────────────────────────────────────────────────────────────
+  // DEVICE DETECTION
+  // ────────────────────────────────────────────────────────────
+  const { isMobile, isTablet } = useDeviceType();
   // Playback state
   const [currentIndex, setCurrentIndex] = useState(0); // Start at candle 0
   const [isPlaying, setIsPlaying] = useState(false);
@@ -414,7 +419,9 @@ function BacktestTab({ candlesData, zonesData }) {
       {/* Main Layout: Chart (80%) + Trade Panel (20%) */}
       <div className="flex-1 flex flex-col lg:flex-row gap-3 p-3 overflow-y-auto">
         {/* Chart Card (80% width on desktop, full width on mobile) */}
-        <div className="flex-1 lg:w-[80%] bg-void-800/50 border border-void-600/50 rounded-lg relative overflow-hidden">
+        <div className={`flex-1 lg:w-[80%] bg-void-800/50 border border-void-600/50 rounded-lg relative overflow-hidden ${
+          isMobile ? 'min-h-[400px]' : isTablet ? 'min-h-[550px]' : 'min-h-[700px]'
+        }`}>
           <BacktestChart
             data={visibleData}
             activeTrade={activeTrade}

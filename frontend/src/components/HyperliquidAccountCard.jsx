@@ -6,7 +6,7 @@ import React from 'react'
 
 /**
  * HyperliquidAccountCard - Display Hyperliquid account balance, equity, and open position
- * @param {Object} account - Account data from /api/live/account
+ * @param {Object} account - Account data from /api/live/account (includes sessionPnl, sessionPnlPct)
  * @param {Object} position - Position data from /api/live/position
  */
 function HyperliquidAccountCard({ account, position }) {
@@ -18,10 +18,9 @@ function HyperliquidAccountCard({ account, position }) {
   const hasPosition = position && position.has_position === true
 
   // Calculate derived values
-  const accountValue = hasAccount ? (account.accountValue ?? 0) : 0
-  const equity = hasAccount ? (account.equity ?? 0) : 0
+  // Hyperliquid accountValue is the total equity (balance + unrealized P&L)
+  const equity = hasAccount ? (account.accountValue ?? 0) : 0
   const unrealizedPnl = hasAccount ? (account.unrealizedPnl ?? 0) : 0
-  const totalMarginUsed = hasAccount ? (account.totalMarginUsed ?? 0) : 0
 
   // Position details
   const positionSide = hasPosition ? position.side : null
@@ -40,6 +39,10 @@ function HyperliquidAccountCard({ account, position }) {
   const slDistance = hasPosition && slPrice
     ? ((Math.abs(slPrice - entryPrice) / entryPrice) * 100).toFixed(2)
     : 0
+
+  // Use session P&L from backend (already calculated from first snapshot)
+  const sessionPnl = hasAccount ? (account.sessionPnl ?? 0) : 0
+  const sessionPnlPct = hasAccount ? (account.sessionPnlPct ?? 0) : 0
 
   // ────────────────────────────────────────────────────────────
   // RENDER
@@ -63,35 +66,36 @@ function HyperliquidAccountCard({ account, position }) {
         </div>
       ) : (
         <>
-          {/* Balance & Equity */}
-          <div className="space-y-3 mb-4">
-            <div className="flex justify-between items-center">
-              <span className="text-xs text-gray-400">Balance</span>
-              <span className="text-base font-bold text-white font-mono">
-                ${accountValue.toFixed(2)}
-              </span>
+          {/* Equity & P&L */}
+          <div className="space-y-4 mb-4">
+            {/* Equity */}
+            <div className="bg-void-900/50 rounded-md p-3">
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-gray-400">Equity</span>
+                <div className="text-right">
+                  <div className="text-2xl font-bold text-white font-mono">
+                    ${equity.toFixed(2)}
+                  </div>
+                  {account.sessionPnl !== undefined && (
+                    <div className={`text-sm ${sessionPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {sessionPnl >= 0 ? '+' : ''}${sessionPnl.toFixed(2)} ({sessionPnl >= 0 ? '+' : ''}{sessionPnlPct.toFixed(2)}%)
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
-            <div className="flex justify-between items-center">
-              <span className="text-xs text-gray-400">Equity</span>
-              <span className={`text-base font-bold font-mono ${equity >= accountValue ? 'text-green-400' : 'text-red-400'}`}>
-                ${equity.toFixed(2)}
-              </span>
-            </div>
-
-            <div className="flex justify-between items-center">
-              <span className="text-xs text-gray-400">Unrealized P&L</span>
-              <span className={`text-base font-bold font-mono ${unrealizedPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                {unrealizedPnl >= 0 ? '+' : ''}${unrealizedPnl.toFixed(2)}
-              </span>
-            </div>
-
-            <div className="flex justify-between items-center">
-              <span className="text-xs text-gray-400">Margin Used</span>
-              <span className="text-sm font-mono text-gray-300">
-                ${totalMarginUsed.toFixed(2)}
-              </span>
-            </div>
+            {/* Unrealized P&L (only if position open) */}
+            {hasPosition && (
+              <div className="bg-void-900/50 rounded-md p-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-gray-400">Unrealized P&L</span>
+                  <div className={`text-xl font-bold font-mono ${unrealizedPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {unrealizedPnl >= 0 ? '+' : ''}${unrealizedPnl.toFixed(2)}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Divider */}

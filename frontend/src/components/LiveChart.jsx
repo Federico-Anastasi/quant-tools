@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════
-// LIVE CHART - 3 Grid Layout (Price, Order Flow, V3 Momentum)
+// LIVE CHART - 4 Grid Layout (Price, Order Flow, V3 Momentum, Equity)
 // Trade boxes overlay for live position visualization
 // ═══════════════════════════════════════════════════════════
 
@@ -19,32 +19,36 @@ const CONFIG = {
         PRICE_DOWN: '#ff0000',
         VOL_UP: '#00f0ff',
         VOL_DOWN: '#ffcc00',
-        V3: '#ffcc00'
+        V3: '#ffcc00',
+        EQUITY: '#00f0ff'
     },
-    // 3 Grids: Price (60%), Order Flow (20%), V3 Momentum (17%)
+    // 4 Grids: Price (55%), Order Flow (15%), V3 Momentum (12%), Equity (10%)
     GRIDS: [
-        { id: 'price', top: 2, height: 60, axisIndex: [0] },     // Candlestick
-        { id: 'vol', top: 63, height: 20, axisIndex: [1] },      // Order Flow
-        { id: 'v3', top: 84, height: 13, axisIndex: [2] }        // V3 Momentum
+        { id: 'price', top: 2, height: 55, axisIndex: [0] },     // Candlestick
+        { id: 'vol', top: 58, height: 15, axisIndex: [1] },      // Order Flow
+        { id: 'v3', top: 74, height: 12, axisIndex: [2] },       // V3 Momentum
+        { id: 'equity', top: 87, height: 10, axisIndex: [3] }    // Equity Curve
     ],
     AXIS_WIDTH: 60
 };
 
 /**
- * LiveChart - 3-grid chart with trade box overlay
+ * LiveChart - 4-grid chart with trade box overlay
  * @param {Object} data - Chart data (price_ohlc, vol_buy, vol_sell, momentum_v3_segments)
  * @param {Object} zonesData - Zone data from API
  * @param {Object} position - Current open position
  * @param {Array} trades - Live trades history
+ * @param {Object} equityCurve - Equity curve data {snapshots: [{timestamp, equity}]}
  */
-const LiveChart = ({ data, zonesData, position, trades = [] }) => {
+const LiveChart = ({ data, zonesData, position, trades = [], equityCurve = null }) => {
     const chartRef = useRef(null);
     const chartInstanceRef = useRef(null);
     const isFirstLoadRef = useRef(true);
     const yAxisStateRef = useRef({
         0: { min: null, max: null },
         1: { min: null, max: null },
-        2: { min: null, max: null }
+        2: { min: null, max: null },
+        3: { min: null, max: null }
     });
 
     // ────────────────────────────────────────────────────────────
@@ -78,18 +82,29 @@ const LiveChart = ({ data, zonesData, position, trades = [] }) => {
     // DATA PROCESSING
     // ────────────────────────────────────────────────────────────
 
-    const processData = (rawData) => {
+    const processData = (rawData, equityData) => {
         if (!rawData.price_ohlc || !rawData.price_ohlc.index) return null;
 
         const timestamps = [...rawData.price_ohlc.index];
         const count = timestamps.length;
+
+        // DEBUG: Log equity data
+        if (equityData) {
+            console.log('[LiveChart] Equity data received:', {
+                snapshotCount: equityData.snapshots?.length,
+                firstSnapshot: equityData.snapshots?.[0],
+                timestampCount: count,
+                firstTimestamp: timestamps[0]
+            });
+        }
 
         const processed = {
             timestamps: timestamps,
             candles: [],
             volumeBuy: [],
             volumeSell: [],
-            cumulative_v3: []
+            cumulative_v3: [],
+            equity: []
         };
 
         for (let i = 0; i < count; i++) {
@@ -120,6 +135,56 @@ const LiveChart = ({ data, zonesData, position, trades = [] }) => {
                 }
             });
             timestamps.forEach(ts => processed.cumulative_v3.push(v3Map.get(ts) || 0));
+        }
+
+        // Equity Curve (Forward-Fill Algorithm)
+        if (equityData && equityData.snapshots && Array.isArray(equityData.snapshots)) {
+            // Sort snapshots by timestamp ascending
+            const sortedSnapshots = [...equityData.snapshots]
+                .filter(s => s.timestamp && s.equity !== undefined)
+                .map(s => ({
+                    timestamp: new Date(s.timestamp).getTime(),
+                    equity: s.equity
+                }))
+                .sort((a, b) => a.timestamp - b.timestamp);
+
+            console.log('[LiveChart] Equity snapshots:', {
+                count: sortedSnapshots.length,
+                firstTs: new Date(sortedSnapshots[0]?.timestamp).toISOString(),
+                lastTs: new Date(sortedSnapshots[sortedSnapshots.length - 1]?.timestamp).toISOString()
+            });
+
+            // Forward-fill: For each candle timestamp, find the last equity snapshot <= that time
+            let snapshotIdx = 0;
+            let lastEquity = null;
+
+            timestamps.forEach(ts => {
+                const candleTime = new Date(ts).getTime();
+
+                // Advance snapshot index while snapshot is before or at candle time
+                while (snapshotIdx < sortedSnapshots.length &&
+                       sortedSnapshots[snapshotIdx].timestamp <= candleTime) {
+                    lastEquity = sortedSnapshots[snapshotIdx].equity;
+                    snapshotIdx++;
+                }
+
+                // Use last known equity value (forward-fill)
+                processed.equity.push(lastEquity);
+            });
+
+            // DEBUG: Log matching results
+            const nonNullCount = processed.equity.filter(v => v !== null).length;
+            console.log('[LiveChart] Equity forward-fill:', {
+                totalPoints: processed.equity.length,
+                nonNullPoints: nonNullCount,
+                matchRate: `${((nonNullCount / processed.equity.length) * 100).toFixed(1)}%`,
+                firstCandle: timestamps[0],
+                lastCandle: timestamps[timestamps.length - 1],
+                sampleValues: processed.equity.slice(0, 10)
+            });
+        } else {
+            // Fill with nulls if no equity data
+            timestamps.forEach(() => processed.equity.push(null));
         }
 
         return processed;
@@ -270,11 +335,12 @@ const LiveChart = ({ data, zonesData, position, trades = [] }) => {
             });
         });
 
-        // Apply graphic elements
+        // Apply graphic elements (replace all to avoid type conflicts)
         chart.setOption({
-            graphic: {
-                elements: allElements
-            }
+            graphic: allElements.map(el => ({
+                ...el,
+                $action: 'replace'
+            }))
         });
     };
 
@@ -294,7 +360,7 @@ const LiveChart = ({ data, zonesData, position, trades = [] }) => {
                 // X-axis: zoom with wheel + pan with drag
                 {
                     type: 'inside',
-                    xAxisIndex: [0, 1, 2],
+                    xAxisIndex: [0, 1, 2, 3],
                     start: 0,
                     end: 100,
                     zoomOnMouseWheel: true,
@@ -373,6 +439,23 @@ const LiveChart = ({ data, zonesData, position, trades = [] }) => {
                     axisLine: { show: false },
                     axisTick: { show: false },
                     splitLine: { lineStyle: { color: CONFIG.COLORS.GRID, width: 1 } }
+                },
+                // 3: Equity Curve
+                {
+                    type: 'value',
+                    gridIndex: 3,
+                    position: 'right',
+                    scale: true,  // Auto-scaling intelligente
+                    min: yAxisStateRef.current[3].min,
+                    max: yAxisStateRef.current[3].max,
+                    axisLabel: {
+                        color: CONFIG.COLORS.TEXT,
+                        fontSize: 10,
+                        formatter: (val) => `$${val.toFixed(2)}`
+                    },
+                    axisLine: { show: false },
+                    axisTick: { show: false },
+                    splitLine: { lineStyle: { color: CONFIG.COLORS.GRID, width: 1 } }
                 }
             ],
             series: [
@@ -422,6 +505,19 @@ const LiveChart = ({ data, zonesData, position, trades = [] }) => {
                     lineStyle: { color: CONFIG.COLORS.V3, width: 2 },
                     itemStyle: { color: CONFIG.COLORS.V3 },
                     symbol: 'none'
+                },
+                // Grid 3: Equity Curve
+                {
+                    type: 'line',
+                    name: 'Equity',
+                    data: [],
+                    xAxisIndex: 3,
+                    yAxisIndex: 3,
+                    lineStyle: { color: CONFIG.COLORS.EQUITY, width: 2 },
+                    itemStyle: { color: CONFIG.COLORS.EQUITY },
+                    symbol: 'none',
+                    smooth: false,
+                    connectNulls: true
                 }
             ],
             tooltip: {
@@ -483,7 +579,8 @@ const LiveChart = ({ data, zonesData, position, trades = [] }) => {
                     yAxis: [
                         { min: yAxisStateRef.current[0].min, max: yAxisStateRef.current[0].max },
                         { min: yAxisStateRef.current[1].min, max: yAxisStateRef.current[1].max },
-                        { min: yAxisStateRef.current[2].min, max: yAxisStateRef.current[2].max }
+                        { min: yAxisStateRef.current[2].min, max: yAxisStateRef.current[2].max },
+                        { min: yAxisStateRef.current[3].min, max: yAxisStateRef.current[3].max }
                     ]
                 });
             }
@@ -547,7 +644,8 @@ const LiveChart = ({ data, zonesData, position, trades = [] }) => {
                 yAxis: [
                     { min: yAxisStateRef.current[0].min, max: yAxisStateRef.current[0].max },
                     { min: yAxisStateRef.current[1].min, max: yAxisStateRef.current[1].max },
-                    { min: yAxisStateRef.current[2].min, max: yAxisStateRef.current[2].max }
+                    { min: yAxisStateRef.current[2].min, max: yAxisStateRef.current[2].max },
+                    { min: yAxisStateRef.current[3].min, max: yAxisStateRef.current[3].max }
                 ]
             });
         });
@@ -572,9 +670,12 @@ const LiveChart = ({ data, zonesData, position, trades = [] }) => {
             yAxisStateRef.current[1].max = null;
             yAxisStateRef.current[2].min = null;
             yAxisStateRef.current[2].max = null;
+            yAxisStateRef.current[3].min = null;
+            yAxisStateRef.current[3].max = null;
 
             chartInstanceRef.current.setOption({
                 yAxis: [
+                    { min: null, max: null },
                     { min: null, max: null },
                     { min: null, max: null },
                     { min: null, max: null }
@@ -603,7 +704,7 @@ const LiveChart = ({ data, zonesData, position, trades = [] }) => {
     const updateChart = (rawData) => {
         if (!chartInstanceRef.current) return;
 
-        const processedData = processData(rawData);
+        const processedData = processData(rawData, equityCurve);
         if (!processedData) return;
 
         const v3Zones = zonesData?.cumulative_v3 || null;
@@ -618,12 +719,14 @@ const LiveChart = ({ data, zonesData, position, trades = [] }) => {
             xAxis: [
                 { data: processedData.timestamps },
                 { data: processedData.timestamps },
+                { data: processedData.timestamps },
                 { data: processedData.timestamps }
             ],
             yAxis: [
                 { min: yAxisStateRef.current[0].min, max: yAxisStateRef.current[0].max },
                 { min: yAxisStateRef.current[1].min, max: yAxisStateRef.current[1].max },
-                { min: yAxisStateRef.current[2].min, max: yAxisStateRef.current[2].max }
+                { min: yAxisStateRef.current[2].min, max: yAxisStateRef.current[2].max },
+                { min: yAxisStateRef.current[3].min, max: yAxisStateRef.current[3].max }
             ],
             series: [
                 { data: processedData.candles },
@@ -635,7 +738,8 @@ const LiveChart = ({ data, zonesData, position, trades = [] }) => {
                         silent: true,
                         data: calculateV3ZoneBands(v3Zones)
                     } : undefined
-                }
+                },
+                { data: processedData.equity }
             ]
         };
 
@@ -669,7 +773,7 @@ const LiveChart = ({ data, zonesData, position, trades = [] }) => {
         if (data && chartInstanceRef.current) {
             updateChart(data);
         }
-    }, [data, zonesData, position, trades]);
+    }, [data, zonesData, position, trades, equityCurve]);
 
     // ────────────────────────────────────────────────────────────
     // CLEANUP
