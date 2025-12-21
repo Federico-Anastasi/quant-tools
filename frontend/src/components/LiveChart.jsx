@@ -150,8 +150,8 @@ const LiveChart = ({ data, zonesData, position, trades = [], equityCurve = null 
 
             console.log('[LiveChart] Equity snapshots:', {
                 count: sortedSnapshots.length,
-                firstTs: new Date(sortedSnapshots[0]?.timestamp).toISOString(),
-                lastTs: new Date(sortedSnapshots[sortedSnapshots.length - 1]?.timestamp).toISOString()
+                firstTs: sortedSnapshots[0] ? new Date(sortedSnapshots[0].timestamp).toISOString() : null,
+                lastTs: sortedSnapshots.length > 0 ? new Date(sortedSnapshots[sortedSnapshots.length - 1].timestamp).toISOString() : null
             });
 
             // Forward-fill: For each candle timestamp, find the last equity snapshot <= that time
