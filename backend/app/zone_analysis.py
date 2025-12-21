@@ -206,9 +206,13 @@ def generate_barriers() -> List[Tuple[float, float, int]]:
 # ============================================================================
 
 def generate_entry_zones() -> List[Tuple[float, float]]:
-    """Generate 20 zones of 2 units each (same as backtest config.py)"""
+    """Generate 16 zones of 2 units each, excluding central zone [-4, +4]"""
     zones = []
-    for min_sig in range(-20, 20, 2):
+    # Negative zones: [-20, -18], ..., [-6, -4]
+    for min_sig in range(-20, -4, 2):
+        zones.append((min_sig, min_sig + 2))
+    # Positive zones: [4, 6], [6, 8], ..., [18, 20]
+    for min_sig in range(4, 20, 2):
         zones.append((min_sig, min_sig + 2))
     return zones
 
