@@ -12,7 +12,7 @@ import * as echarts from 'echarts';
 
 const CONFIG = {
     COLORS: {
-        BG: '#0b0e11',
+        BG: 'transparent',
         GRID: '#1e232b',
         TEXT: '#8b93a0',
         PRICE_UP: '#00ff00',
@@ -24,12 +24,13 @@ const CONFIG = {
     },
     // 4 Grids: Price (55%), Order Flow (15%), V3 Momentum (12%), Equity (10%)
     GRIDS: [
-        { id: 'price', top: 2, height: 55, axisIndex: [0] },     // Candlestick
-        { id: 'vol', top: 58, height: 15, axisIndex: [1] },      // Order Flow
-        { id: 'v3', top: 74, height: 12, axisIndex: [2] },       // V3 Momentum
-        { id: 'equity', top: 87, height: 10, axisIndex: [3] }    // Equity Curve
+        { id: 'price', top: 0, height: 55, axisIndex: [0] },     // Candlestick
+        { id: 'vol', top: 56, height: 15, axisIndex: [1] },      // Order Flow
+        { id: 'v3', top: 72, height: 13, axisIndex: [2] },       // V3 Momentum
+        { id: 'equity', top: 86, height: 12, axisIndex: [3] }    // Equity Curve
     ],
-    AXIS_WIDTH: 60
+    AXIS_LEFT: 10,
+    AXIS_RIGHT: 55
 };
 
 /**
@@ -369,8 +370,8 @@ const LiveChart = ({ data, zonesData, position, trades = [], equityCurve = null 
                 }
             ],
             grid: CONFIG.GRIDS.map(g => ({
-                left: CONFIG.AXIS_WIDTH,
-                right: CONFIG.AXIS_WIDTH,
+                left: CONFIG.AXIS_LEFT,
+                right: CONFIG.AXIS_RIGHT,
                 top: `${g.top}%`,
                 height: `${g.height}%`,
                 containLabel: false
@@ -379,13 +380,39 @@ const LiveChart = ({ data, zonesData, position, trades = [], equityCurve = null 
                 type: 'category',
                 data: [],  // Will be populated in updateChart
                 gridIndex: i,
+                axisPointer: {
+                    show: true,
+                    lineStyle: {
+                        color: 'rgba(255, 255, 255, 0.4)',
+                        width: 1,
+                        type: 'dashed'
+                    },
+                    label: {
+                        show: i === CONFIG.GRIDS.length - 1,
+                        backgroundColor: '#1e232b',
+                        color: '#fff',
+                        fontSize: 10,
+                        formatter: (params) => {
+                            const date = new Date(params.value);
+                            const day = String(date.getDate()).padStart(2, '0');
+                            const month = String(date.getMonth() + 1).padStart(2, '0');
+                            const hours = String(date.getHours()).padStart(2, '0');
+                            const minutes = String(date.getMinutes()).padStart(2, '0');
+                            return `${month}/${day} ${hours}:${minutes}`;
+                        }
+                    }
+                },
                 axisLabel: {
                     show: i === CONFIG.GRIDS.length - 1,
                     color: CONFIG.COLORS.TEXT,
                     fontSize: 10,
                     formatter: (value) => {
                         const date = new Date(value);
-                        return `${date.getMonth() + 1}/${date.getDate()} ${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`;
+                        const day = String(date.getDate()).padStart(2, '0');
+                        const month = String(date.getMonth() + 1).padStart(2, '0');
+                        const hours = String(date.getHours()).padStart(2, '0');
+                        const minutes = String(date.getMinutes()).padStart(2, '0');
+                        return `${month}/${day} ${hours}:${minutes}`;
                     }
                 },
                 axisLine: { lineStyle: { color: CONFIG.COLORS.GRID } },
@@ -401,10 +428,25 @@ const LiveChart = ({ data, zonesData, position, trades = [], equityCurve = null 
                     scale: true,
                     min: yAxisStateRef.current[0].min,
                     max: yAxisStateRef.current[0].max,
+                    axisPointer: {
+                        show: true,
+                        lineStyle: {
+                            color: 'rgba(255, 255, 255, 0.4)',
+                            width: 1,
+                            type: 'dashed'
+                        },
+                        label: {
+                            show: true,
+                            backgroundColor: '#1e232b',
+                            color: '#fff',
+                            fontSize: 10,
+                            formatter: (params) => `$${Math.round(params.value).toLocaleString()}`
+                        }
+                    },
                     axisLabel: {
                         color: CONFIG.COLORS.TEXT,
                         fontSize: 10,
-                        formatter: (val) => `$${val.toLocaleString()}`
+                        formatter: (val) => `$${Math.round(val).toLocaleString()}`
                     },
                     axisLine: { show: false },
                     axisTick: { show: false },
@@ -521,11 +563,26 @@ const LiveChart = ({ data, zonesData, position, trades = [], equityCurve = null 
                 }
             ],
             tooltip: {
+                show: false,
                 trigger: 'axis',
-                axisPointer: { type: 'cross' },
-                backgroundColor: 'rgba(11, 14, 17, 0.95)',
-                borderColor: CONFIG.COLORS.GRID,
-                textStyle: { color: CONFIG.COLORS.TEXT }
+                axisPointer: {
+                    type: 'cross'
+                }
+            },
+            axisPointer: {
+                show: true,
+                type: 'line',
+                link: [
+                    { xAxisIndex: [0, 1, 2, 3] }
+                ],
+                lineStyle: {
+                    color: 'rgba(255, 255, 255, 0.4)',
+                    width: 1,
+                    type: 'dashed'
+                },
+                label: {
+                    show: false
+                }
             }
         };
 
@@ -554,8 +611,8 @@ const LiveChart = ({ data, zonesData, position, trades = [], equityCurve = null 
             const y = e.clientY - rect.top;
             const width = chartInstanceRef.current.getWidth();
 
-            // Check if mouse is on Y-axis area (right side, last 60px)
-            if (x > width - CONFIG.AXIS_WIDTH) {
+            // Check if mouse is on Y-axis area (right side)
+            if (x > width - CONFIG.AXIS_RIGHT) {
                 e.preventDefault();
                 e.stopPropagation();
 
@@ -593,7 +650,7 @@ const LiveChart = ({ data, zonesData, position, trades = [], equityCurve = null 
             const width = zr.getWidth();
 
             // Check if on Y-axis area
-            if (x > width - CONFIG.AXIS_WIDTH) {
+            if (x > width - CONFIG.AXIS_RIGHT) {
                 const gridIdx = getGridIndex(y);
                 if (gridIdx === -1) return;
 
@@ -622,7 +679,7 @@ const LiveChart = ({ data, zonesData, position, trades = [], equityCurve = null 
 
             if (!dragState.active) {
                 // Cursor feedback
-                if (x > width - CONFIG.AXIS_WIDTH && getGridIndex(y) !== -1) {
+                if (x > width - CONFIG.AXIS_RIGHT && getGridIndex(y) !== -1) {
                     zr.setCursorStyle('ns-resize');
                 } else {
                     zr.setCursorStyle('default');

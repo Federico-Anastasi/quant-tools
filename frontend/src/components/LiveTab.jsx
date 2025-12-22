@@ -280,7 +280,7 @@ function LiveTab({ candlesData, zonesData }) {
       {/* Left: Charts (80% width on desktop) */}
       <div className="flex-1 lg:w-[80%] flex flex-col gap-3">
         {/* Main Chart (4 grids integrated: Price, Order Flow, V3 Momentum, Equity) */}
-        <div className={`flex-1 bg-void-800/50 border border-void-600/50 rounded-lg relative overflow-hidden ${
+        <div className={`flex-1 relative ${
           isMobile ? 'min-h-[400px]' : isTablet ? 'min-h-[550px]' : 'min-h-[700px]'
         }`}>
           {chartData ? (
@@ -300,7 +300,7 @@ function LiveTab({ candlesData, zonesData }) {
         </div>
 
         {/* Live Trades Table (Bottom) */}
-        <div className="bg-void-800/50 border border-void-600/50 rounded-lg p-4 max-h-[300px] overflow-auto">
+        <div className="bg-void-800/30 border border-void-700/30 rounded-lg p-4">
           <LiveTradesTable trades={liveTrades} />
         </div>
       </div>

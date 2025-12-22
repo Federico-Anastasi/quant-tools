@@ -1,4 +1,5 @@
 import React from 'react';
+import { BarChart3, Layers, Bot, History, Radio, Info } from 'lucide-react';
 
 /**
  * Header - Professional quant trading platform header
@@ -34,9 +35,7 @@ function Header({
           className="p-2 text-gray-400 hover:text-amber-400 transition-colors"
           title="About"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
+          <Info className="w-5 h-5" />
         </button>
       </div>
 
@@ -45,74 +44,63 @@ function Header({
         <div className="flex items-center justify-around px-2 py-2">
           <button
             onClick={() => onTabChange('cvd')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md transition-all ${
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2 rounded-md transition-all ${
               activeTab === 'cvd'
                 ? 'bg-neon-cyan/15 text-neon-cyan'
                 : 'text-gray-400 hover:text-gray-300'
             }`}
           >
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
-            </svg>
-            <span className="text-xs font-bold">Order Flow</span>
+            <BarChart3 className="w-4 h-4 flex-shrink-0" />
+            <span className="text-[10px] font-bold">Flow</span>
           </button>
 
           <button
             onClick={() => onTabChange('lob')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md transition-all ${
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2 rounded-md transition-all ${
               activeTab === 'lob'
                 ? 'bg-emerald-500/15 text-emerald-400'
                 : 'text-gray-400 hover:text-gray-300'
             }`}
           >
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M3 3a1 1 0 000 2h11a1 1 0 100-2H3zM3 7a1 1 0 000 2h7a1 1 0 100-2H3zM3 11a1 1 0 100 2h4a1 1 0 100-2H3z" />
-            </svg>
-            <span className="text-xs font-bold">Liquidity</span>
+            <Layers className="w-4 h-4 flex-shrink-0" />
+            <span className="text-[10px] font-bold">Liq</span>
           </button>
 
           <button
             onClick={() => onTabChange('bots')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md transition-all ${
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2 rounded-md transition-all ${
               activeTab === 'bots'
                 ? 'bg-purple-500/15 text-purple-400'
                 : 'text-gray-400 hover:text-gray-300'
             }`}
           >
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
-              <path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5z" clipRule="evenodd" />
-            </svg>
-            <span className="text-xs font-bold">Bots</span>
+            <Bot className="w-4 h-4 flex-shrink-0" />
+            <span className="text-[10px] font-bold">Bots</span>
           </button>
 
           <button
             onClick={() => onTabChange('backtest')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md transition-all ${
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2 rounded-md transition-all ${
               activeTab === 'backtest'
                 ? 'bg-amber-500/15 text-amber-400'
                 : 'text-gray-400 hover:text-gray-300'
             }`}
           >
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
-            </svg>
-            <span className="text-xs font-bold">Backtest</span>
+            <History className="w-4 h-4 flex-shrink-0" />
+            <span className="text-[10px] font-bold">Test</span>
           </button>
 
           <button
             onClick={() => onTabChange('live')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md transition-all ${
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2 rounded-md transition-all ${
               activeTab === 'live'
                 ? 'bg-red-500/15 text-red-400'
                 : 'text-gray-400 hover:text-gray-300'
             }`}
           >
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M5.5 2a3.5 3.5 0 101.665 6.58L8.585 10l-1.42 1.42a3.5 3.5 0 101.414 1.414l1.42-1.42 1.42 1.42a3.5 3.5 0 101.414-1.414L11.415 10l1.42-1.42A3.5 3.5 0 1011.17 7.165L9.585 8.585 8.165 7.165A3.5 3.5 0 005.5 2zM4 5.5a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zm9 0a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zm-4.5 9a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0z" clipRule="evenodd" />
-            </svg>
-            <span className="text-xs font-bold">Live</span>
-            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+            <Radio className="w-4 h-4 flex-shrink-0" />
+            <span className="text-[10px] font-bold">Live</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
           </button>
         </div>
       </div>
@@ -149,9 +137,7 @@ function Header({
                 : 'text-gray-400 hover:text-gray-300 hover:bg-void-700/50'
             }`}
           >
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
-            </svg>
+            <BarChart3 className="w-4 h-4" />
             Order Flow
           </button>
 
@@ -163,9 +149,7 @@ function Header({
                 : 'text-gray-400 hover:text-gray-300 hover:bg-void-700/50'
             }`}
           >
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M3 3a1 1 0 000 2h11a1 1 0 100-2H3zM3 7a1 1 0 000 2h7a1 1 0 100-2H3zM3 11a1 1 0 100 2h4a1 1 0 100-2H3z" />
-            </svg>
+            <Layers className="w-4 h-4" />
             Liquidity
           </button>
 
@@ -177,10 +161,7 @@ function Header({
                 : 'text-gray-400 hover:text-gray-300 hover:bg-void-700/50'
             }`}
           >
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
-              <path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5z" clipRule="evenodd" />
-            </svg>
+            <Bot className="w-4 h-4" />
             Bots
           </button>
 
@@ -192,9 +173,7 @@ function Header({
                 : 'text-gray-400 hover:text-gray-300 hover:bg-void-700/50'
             }`}
           >
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
-            </svg>
+            <History className="w-4 h-4" />
             Backtest
           </button>
 
@@ -206,9 +185,7 @@ function Header({
                 : 'text-gray-400 hover:text-gray-300 hover:bg-void-700/50'
             }`}
           >
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M5.5 2a3.5 3.5 0 101.665 6.58L8.585 10l-1.42 1.42a3.5 3.5 0 101.414 1.414l1.42-1.42 1.42 1.42a3.5 3.5 0 101.414-1.414L11.415 10l1.42-1.42A3.5 3.5 0 1011.17 7.165L9.585 8.585 8.165 7.165A3.5 3.5 0 005.5 2zM4 5.5a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zm9 0a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zm-4.5 9a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0z" clipRule="evenodd" />
-            </svg>
+            <Radio className="w-4 h-4" />
             Live
             <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
           </button>
@@ -220,9 +197,7 @@ function Header({
           onClick={onAboutClick}
           className="flex items-center gap-2 bg-void-800 hover:bg-void-700 border border-void-700 hover:border-amber-400/40 text-gray-300 hover:text-amber-400 px-4 py-2 rounded-lg text-xs font-bold transition-all"
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
+          <Info className="w-4 h-4" />
           About
         </button>
       </div>

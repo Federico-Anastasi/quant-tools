@@ -212,32 +212,16 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
       // Titles removed - tab header already identifies content ("Liquidity")
       // More space for chart, cleaner professional design
       tooltip: {
-        trigger: 'axis',
-        axisPointer: {
-          type: 'cross',
-          lineStyle: { color: '#64748b', width: 1, type: 'dashed' }
-        },
-        backgroundColor: 'rgba(11, 14, 17, 0.95)',
-        borderColor: '#2a2e39',
-        textStyle: { color: '#cbd5e1', fontSize: 11 },
-        formatter: (params) => {
-          if (!params || params.length === 0) return '';
-          const candleData = params.find(p => p.seriesName === 'BTC Price');
-          if (candleData && candleData.data) {
-            const [o, c, l, h] = candleData.data;
-            const time = new Date(timestamps[candleData.dataIndex]);
-            const timeStr = `${time.getHours()}:${String(time.getMinutes()).padStart(2, '0')}`;
-            return `
-              <div style="padding: 6px;">
-                <div style="font-weight: bold; margin-bottom: 4px; color: #00f0ff;">${timeStr}</div>
-                <div>Open: <span style="color: #cbd5e1;">$${o.toLocaleString()}</span></div>
-                <div>High: <span style="color: #10b981;">$${h.toLocaleString()}</span></div>
-                <div>Low: <span style="color: #ef4444;">$${l.toLocaleString()}</span></div>
-                <div>Close: <span style="color: #cbd5e1; font-weight: bold;">$${c.toLocaleString()}</span></div>
-              </div>
-            `;
-          }
-          return '';
+        show: false
+      },
+      axisPointer: {
+        show: true,
+        type: 'line',
+        link: [{ xAxisIndex: 'all' }],
+        lineStyle: {
+          color: 'rgba(255, 255, 255, 0.4)',
+          width: 1,
+          type: 'dashed'
         }
       },
       xAxis: [
@@ -270,7 +254,17 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
           },
           splitLine: { show: false },
           axisPointer: {
+            show: true,
+            lineStyle: {
+              color: 'rgba(255, 255, 255, 0.4)',
+              width: 1,
+              type: 'dashed'
+            },
             label: {
+              show: true,
+              backgroundColor: '#1e232b',
+              color: '#fff',
+              fontSize: 10,
               formatter: (params) => {
                 try {
                   const date = new Date(params.value);
@@ -319,8 +313,16 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
           axisLabel: {
             color: '#8b93a0',
             fontSize: 10,
-            formatter: (val) => {
-              return '$' + val.toLocaleString('en-US', { maximumFractionDigits: 0 });
+            formatter: (val) => '$' + Math.round(val).toLocaleString()
+          },
+          axisPointer: {
+            show: true,
+            label: {
+              show: true,
+              backgroundColor: '#1e232b',
+              color: '#fff',
+              fontSize: 10,
+              formatter: (params) => '$' + Math.round(params.value).toLocaleString()
             }
           },
           splitLine: { lineStyle: { color: '#1e232b', width: 1 } },
