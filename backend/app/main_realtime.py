@@ -20,7 +20,10 @@ from app.websocket_collector import start_collector
 from app.cvd_pipeline import cvd_pipeline_loop
 from app.runs_pipeline import runs_pipeline_loop
 from app.bot_executor import bot_execution_loop
-from app.live_executor import live_execution_loop
+# Live trading is intentionally DISABLED (no real-money execution, no Hyperliquid
+# credentials on the box). The live executor + its userFills WebSocket are not
+# started. Re-enable deliberately only with a configured, audited live account.
+# from app.live_executor import live_execution_loop
 
 # Configure logging
 logging.basicConfig(
@@ -31,37 +34,64 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+# Backoff between restarts for a crashed pipeline (seconds).
+_RESTART_BACKOFF = 5
+
+
+async def _supervised(name: str, coro_factory):
+    """
+    Run a pipeline coroutine under a supervisor that restarts it on exit/crash.
+
+    Args:
+        name: Human-readable name for log messages.
+        coro_factory: Zero-argument callable that returns a fresh coroutine each time.
+    """
+    while True:
+        logger.info(f"[SUPERVISOR] Starting pipeline: {name}")
+        try:
+            await coro_factory()
+            # Coroutine returned normally — this should never happen for infinite loops.
+            logger.error(
+                f"[SUPERVISOR] Pipeline {name!r} returned unexpectedly (should loop forever). "
+                f"Restarting in {_RESTART_BACKOFF}s."
+            )
+        except asyncio.CancelledError:
+            # Propagate cancellation (intentional shutdown).
+            logger.info(f"[SUPERVISOR] Pipeline {name!r} cancelled — not restarting.")
+            raise
+        except Exception as exc:
+            logger.error(
+                f"[SUPERVISOR] Pipeline {name!r} crashed with {type(exc).__name__}: {exc}. "
+                f"Restarting in {_RESTART_BACKOFF}s.",
+                exc_info=True,
+            )
+        await asyncio.sleep(_RESTART_BACKOFF)
+
 
 async def main():
     """
-    Start all real-time pipelines concurrently
+    Start all real-time pipelines concurrently, each under a supervisor.
 
-    Pipeline Responsibilities:
-    - WebSocket Collector: Ingest BTC trades from Hyperliquid WebSocket
-    - CVD Pipeline: Calculate 3-min candles (CVD, cumulative signals)
-    - Runs Pipeline: Detect directional runs (up/down clusters)
-    - Bot Executor: Execute paper trading strategies (SINGLETON via Redis lock)
+    Each pipeline is wrapped in _supervised() so that if it returns or raises,
+    it is restarted after a short backoff instead of being silently dropped.
+    Docker restart=unless-stopped is the outer safety net; _supervised is the
+    inner one that handles transient failures without a full container restart.
     """
     print("=" * 80, flush=True)
     print("[REAL-TIME CONTAINER] Starting all real-time pipelines...", flush=True)
     print("=" * 80, flush=True)
 
     logger.info("[REAL-TIME] Container mode: Real-Time Worker")
-    logger.info("[REAL-TIME] Pipelines: WebSocket, CVD, Runs, Bot Executor, Live Executor")
+    logger.info("[REAL-TIME] Pipelines: WebSocket, CVD, Runs, Bot Executor (Live Executor DISABLED)")
 
-    try:
-        # Start all pipelines concurrently
-        await asyncio.gather(
-            start_collector(),        # WebSocket trades ingestion
-            cvd_pipeline_loop(),      # 3-min candle calculation
-            runs_pipeline_loop(),     # Directional run detection
-            bot_execution_loop(),     # Paper trading execution (SINGLETON)
-            live_execution_loop(),    # Live trading execution (V3 Momentum)
-            return_exceptions=True    # Continue on pipeline errors
-        )
-    except Exception as e:
-        logger.error(f"[REAL-TIME] Critical error: {e}", exc_info=True)
-        raise
+    await asyncio.gather(
+        _supervised("WebSocket Collector", start_collector),
+        _supervised("CVD Pipeline",        cvd_pipeline_loop),
+        _supervised("Runs Pipeline",       runs_pipeline_loop),
+        _supervised("Bot Executor",        bot_execution_loop),
+        # Live Executor DISABLED on purpose — see import note above.
+        # _supervised("Live Executor",       live_execution_loop),
+    )
 
 
 if __name__ == "__main__":

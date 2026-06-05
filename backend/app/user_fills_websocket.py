@@ -189,36 +189,49 @@ async def connect_userFills_ws(user_address: str, on_fill_callback: Callable):
 
 async def start_user_fills_listener(user_address: str, on_fill_callback: Callable):
     """
-    Start WebSocket listener with auto-reconnect
+    Start WebSocket listener with exponential-backoff auto-reconnect.
+
+    The Hyperliquid server closes sessions with code 1000 "Expired" when the
+    server-side session times out.  On every reconnect the subscription message
+    is re-sent, which re-initialises the server-side session.  Exponential
+    backoff (5 → 10 → 20 → 40 → 60s cap) avoids hammering the API after
+    prolonged connectivity issues.
 
     Args:
         user_address: Hyperliquid wallet address
         on_fill_callback: Async function called for each real-time fill
-
-    Note:
-        Runs indefinitely with auto-reconnect on errors
-        Use asyncio.create_task() to run in background
     """
     global ws_connected
 
     logger.info(f"[WS userFills] Starting listener for {user_address}")
 
-    reconnect_delay = 5  # seconds
+    _MIN_DELAY = 5    # seconds
+    _MAX_DELAY = 60   # seconds
+    reconnect_delay = _MIN_DELAY
 
     while True:
         try:
             ws_connected = False
             await connect_userFills_ws(user_address, on_fill_callback)
+            # Clean return from connect_userFills_ws — reset backoff
+            reconnect_delay = _MIN_DELAY
 
         except websockets.exceptions.WebSocketException as e:
-            logger.error(f"[WS userFills] WebSocket error: {e}, reconnecting in {reconnect_delay}s")
+            logger.error(
+                f"[WS userFills] WebSocket error: {e}, reconnecting in {reconnect_delay}s"
+            )
             ws_connected = False
             await asyncio.sleep(reconnect_delay)
+            reconnect_delay = min(reconnect_delay * 2, _MAX_DELAY)
 
         except Exception as e:
-            logger.error(f"[WS userFills] Unexpected error: {e}, reconnecting in {reconnect_delay}s", exc_info=True)
+            logger.error(
+                f"[WS userFills] Unexpected error: {e}, reconnecting in {reconnect_delay}s",
+                exc_info=True,
+            )
             ws_connected = False
             await asyncio.sleep(reconnect_delay)
+            reconnect_delay = min(reconnect_delay * 2, _MAX_DELAY)
 
 
 def get_status() -> Dict:

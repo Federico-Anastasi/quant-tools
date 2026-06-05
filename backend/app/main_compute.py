@@ -45,21 +45,33 @@ async def main():
     logger.info("[COMPUTE] Container mode: Compute Worker")
     logger.info("[COMPUTE] Pipelines: Zone Analysis, LOB Subscriber")
 
-    try:
-        # Prepare pipeline tasks
-        tasks = [
-            zone_pipeline_loop(),     # Hourly zone analysis (CPU-intensive)
-            lob_subscriber_loop(),    # LOB calculation subscriber (Redis Pub/Sub)
-        ]
+    _RESTART_BACKOFF = 5
 
-        # Start all pipelines concurrently
-        await asyncio.gather(
-            *tasks,
-            return_exceptions=True    # Continue on pipeline errors
-        )
-    except Exception as e:
-        logger.error(f"[COMPUTE] Critical error: {e}", exc_info=True)
-        raise
+    async def _supervised(name: str, coro_factory):
+        """Restart pipeline on unexpected exit/crash."""
+        while True:
+            logger.info(f"[SUPERVISOR] Starting pipeline: {name}")
+            try:
+                await coro_factory()
+                logger.error(
+                    f"[SUPERVISOR] Pipeline {name!r} returned unexpectedly. "
+                    f"Restarting in {_RESTART_BACKOFF}s."
+                )
+            except asyncio.CancelledError:
+                logger.info(f"[SUPERVISOR] Pipeline {name!r} cancelled — not restarting.")
+                raise
+            except Exception as exc:
+                logger.error(
+                    f"[SUPERVISOR] Pipeline {name!r} crashed: {exc}. "
+                    f"Restarting in {_RESTART_BACKOFF}s.",
+                    exc_info=True,
+                )
+            await asyncio.sleep(_RESTART_BACKOFF)
+
+    await asyncio.gather(
+        _supervised("Zone Pipeline",   zone_pipeline_loop),
+        _supervised("LOB Subscriber",  lob_subscriber_loop),
+    )
 
 
 if __name__ == "__main__":

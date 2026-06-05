@@ -499,6 +499,70 @@ class DatabaseService:
             return [c.to_dict() for c in reversed(candles)]
 
     @staticmethod
+    def get_finalized_candles_between(start_exclusive: datetime, end_exclusive: datetime, symbol: str = "BTC") -> List[Dict]:
+        """Finalized candles with start_exclusive < timestamp < end_exclusive, ascending.
+
+        Used by the bot executor startup catch-up to replay any gap between the
+        last processed candle and the current live candle.
+        """
+        with DatabaseService.get_session() as session:
+            candles = session.query(CVDCandle).filter(
+                CVDCandle.symbol == symbol,
+                CVDCandle.finalized == True,
+                CVDCandle.timestamp > start_exclusive,
+                CVDCandle.timestamp < end_exclusive,
+            ).order_by(CVDCandle.timestamp.asc()).all()
+            return [{
+                'id': c.id,
+                'timestamp': c.timestamp,
+                'price_close': float(c.price_close),
+                'cumulative_v2': float(c.cumulative_v2) if c.cumulative_v2 is not None else 0.0,
+                'cumulative_v3': float(c.cumulative_v3) if c.cumulative_v3 is not None else 0.0,
+            } for c in candles]
+
+    @staticmethod
+    def get_zone_at_time(candle_timestamp: datetime, symbol: str = "BTC") -> Dict:
+        """Most recent zone snapshot at-or-before candle_timestamp, keyed by signal_type.
+
+        Mirrors get_latest_zones() shape (includes n_trades/mean_return) but resolves
+        the zone as it was at a past point in time — required so the catch-up replays
+        gap candles with the same zone the live loop would have seen at that moment.
+        """
+        with DatabaseService.get_session() as session:
+            zone_ts_row = session.query(ZoneSnapshot.timestamp).filter(
+                ZoneSnapshot.timestamp <= candle_timestamp,
+                ZoneSnapshot.symbol == symbol,
+            ).order_by(ZoneSnapshot.timestamp.desc()).first()
+
+            if not zone_ts_row:
+                return {}
+
+            zone_ts = zone_ts_row[0]
+            zones = session.query(ZoneSnapshot).filter(
+                ZoneSnapshot.timestamp == zone_ts,
+                ZoneSnapshot.symbol == symbol,
+            ).all()
+
+            result = {}
+            for zone in zones:
+                result[zone.signal_type] = {
+                    'timestamp': zone.timestamp.isoformat(),
+                    'is_long': zone.is_long,
+                    'zone_min': float(zone.zone_min),
+                    'zone_max': float(zone.zone_max),
+                    'sharpe': float(zone.sharpe),
+                    'win_rate': float(zone.win_rate),
+                    'mean_return': float(zone.mean_return),
+                    'n_trades': zone.n_trades,
+                    'tp_pct': float(zone.tp_pct),
+                    'sl_pct': float(zone.sl_pct),
+                    'max_candles': zone.max_candles,
+                    'ci_95_lower': float(zone.ci_95_lower) if zone.ci_95_lower else None,
+                    'ci_95_upper': float(zone.ci_95_upper) if zone.ci_95_upper else None,
+                }
+            return result
+
+    @staticmethod
     def insert_zone_snapshot(zone_data: Dict) -> int:
         """Insert zone snapshot to database"""
         with DatabaseService.get_session() as session:

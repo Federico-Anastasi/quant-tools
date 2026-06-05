@@ -71,9 +71,21 @@ async def zone_pipeline_loop():
             )
 
             if not results:
-                print("[ZONE PIPELINE] WARNING: No results from zone analysis", flush=True)
+                print("[ZONE PIPELINE] WARNING: Zone analysis returned EMPTY results for ALL signals. "
+                      "No zone snapshots saved. Bots will use stale zones until next run.", flush=True)
                 await asyncio.sleep(3600)
                 continue
+
+            # Warn loudly for any signal_type that yielded no zone
+            for expected_signal in ('cumulative_v2', 'cumulative_v3'):
+                if expected_signal not in results:
+                    print(
+                        f"[ZONE PIPELINE] WARNING: No valid zone found for {expected_signal!r}. "
+                        f"Possible cause: too few candles in analysis window or all zones have "
+                        f"< min_samples entries (after central-noise exclusion). "
+                        f"Bots will trade on the previous {expected_signal} zone snapshot until next run.",
+                        flush=True
+                    )
 
             # Save results to database
             timestamp_now = datetime.now(timezone.utc)
@@ -99,7 +111,9 @@ async def zone_pipeline_loop():
                     'analysis_window_candles': _to_python_type(zone_data['analysis_window_candles'])
                 }
 
-                zone_id = DatabaseService.insert_zone_snapshot(zone_snapshot)
+                zone_id = await asyncio.to_thread(
+                    DatabaseService.insert_zone_snapshot, zone_snapshot
+                )
 
                 direction = "LONG" if zone_snapshot['is_long'] else "SHORT"
                 print(f"[ZONE PIPELINE] Saved {signal_type}: {direction} zone [{zone_snapshot['zone_min']}, {zone_snapshot['zone_max']}) "

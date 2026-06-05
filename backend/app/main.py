@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 
 import numpy as np
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -515,7 +515,7 @@ async def get_bot(bot_id: int):
     """Get single bot details"""
     bot = DatabaseService.get_bot_by_id(bot_id)
     if not bot:
-        return {"error": "Bot not found"}, 404
+        raise HTTPException(status_code=404, detail="Bot not found")
     return {
         "timestamp": utc_now_iso(),
         "bot": bot
@@ -578,10 +578,10 @@ async def get_bots_equity_bulk(
     start_total = time.time()
 
     if not request.bot_ids:
-        return {"error": "At least one bot_id is required"}, 400
+        raise HTTPException(status_code=400, detail="At least one bot_id is required")
 
     if len(request.bot_ids) > 20:
-        return {"error": "Maximum 20 bots per request"}, 400
+        raise HTTPException(status_code=400, detail="Maximum 20 bots per request")
 
     from_dt = datetime.fromisoformat(request.from_time) if request.from_time else None
     to_dt = datetime.fromisoformat(request.to_time) if request.to_time else None
@@ -803,7 +803,7 @@ async def get_live_trades(limit: int = Query(50, ge=1, le=500)):
         }
     except Exception as e:
         logging.error(f"Error fetching live trades: {e}")
-        return {"error": str(e)}, 500
+        raise HTTPException(status_code=500, detail="Failed to fetch live trades")
 
 
 @app.get("/api/live/equity-curve")

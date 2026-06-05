@@ -5,13 +5,39 @@ Real-time paper trading bot execution with signal detection and position managem
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, List
 from decimal import Decimal
 
 from app.database import DatabaseService
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# ZONE QUALITY FILTER
+# ============================================================================
+# A zone only becomes tradable once it has enough sample trades and a positive
+# expected return. The historical backfill (backfill_bot_trades.py) applies this
+# exact gate before entering, so live AND catch-up MUST apply it too — otherwise
+# the bots would trade more loosely live than the entire reconstructed history,
+# breaking day-zero -> live continuity.
+_ZONE_MIN_TRADES = 10
+_ZONE_MIN_MEAN_RETURN = 0.1  # percent
+
+
+def filter_zones_by_quality(zones: Dict) -> Dict:
+    """Keep only zones passing the same quality gate the backfill applies."""
+    filtered = {}
+    for signal_type, zone_data in zones.items():
+        n_trades = zone_data.get('n_trades')
+        mean_return = zone_data.get('mean_return')
+        if n_trades is None or mean_return is None:
+            # Cannot assert quality without the gate fields — skip defensively.
+            continue
+        if n_trades >= _ZONE_MIN_TRADES and mean_return > _ZONE_MIN_MEAN_RETURN:
+            filtered[signal_type] = zone_data
+    return filtered
 
 
 # ============================================================================
@@ -472,13 +498,15 @@ async def enter_position(bot: Dict, entry_params: Dict, timestamp: datetime) -> 
         'status': 'open'
     }
 
-    trade_id = DatabaseService.create_trade(trade_data)
+    trade_id = await asyncio.to_thread(DatabaseService.create_trade, trade_data)
 
     # Update bot balance (subtract allocated capital - SAME AS BACKFILL)
     new_balance = float(bot['current_balance']) - capital_allocated
-    DatabaseService.update_bot_metrics(bot['id'], {
-        'current_balance': Decimal(str(new_balance))
-    })
+    await asyncio.to_thread(
+        DatabaseService.update_bot_metrics,
+        bot['id'],
+        {'current_balance': Decimal(str(new_balance))}
+    )
 
     logger.info(f"[BOT {bot['id']}] Entered {direction} position at {entry_price:.2f} (TP: {tp_price:.2f}, SL: {sl_price:.2f}, Size: {position_size:.6f} BTC)")
 
@@ -582,7 +610,7 @@ async def exit_position(bot: Dict, trade: Dict, exit_params: Dict, timestamp: da
     pnl = leveraged_pnl - total_fees
     pnl_pct = (pnl / capital_allocated) * 100
 
-    # Update trade
+    # Compute all derived values before entering the DB transaction
     trade_updates = {
         'exit_timestamp': timestamp,
         'exit_price': Decimal(str(exit_price)),
@@ -594,7 +622,6 @@ async def exit_position(bot: Dict, trade: Dict, exit_params: Dict, timestamp: da
         'total_fees': Decimal(str(total_fees)),
         'status': 'closed'
     }
-    DatabaseService.update_trade(trade['id'], trade_updates)
 
     # Update bot balance (SAME AS BACKFILL - ADD to existing balance)
     new_balance = bot['current_balance'] + capital_allocated + pnl
@@ -607,8 +634,7 @@ async def exit_position(bot: Dict, trade: Dict, exit_params: Dict, timestamp: da
     losing_trades = bot['losing_trades'] + (1 if pnl <= 0 else 0)
     win_rate = (winning_trades / total_trades) * 100 if total_trades > 0 else 0
 
-    # Update bot metrics
-    DatabaseService.update_bot_metrics(bot['id'], {
+    bot_metrics = {
         'current_balance': Decimal(str(new_balance)),
         'current_equity': Decimal(str(new_balance)),  # No open positions after exit
         'total_pnl': Decimal(str(new_total_pnl)),
@@ -617,7 +643,29 @@ async def exit_position(bot: Dict, trade: Dict, exit_params: Dict, timestamp: da
         'winning_trades': winning_trades,
         'losing_trades': losing_trades,
         'win_rate': Decimal(str(win_rate))
-    })
+    }
+
+    # Persist trade close + bot metrics in a single transaction so a crash
+    # cannot leave a closed trade with an un-updated bot balance.
+    def _atomic_exit(trade_id, t_updates, bot_id, b_metrics):
+        # get_session() commits on clean exit and rolls back on exception,
+        # so both UPDATE statements are in a single atomic transaction.
+        with DatabaseService.get_session() as session:
+            from app.database import BotTrade, Bot
+            from sqlalchemy import update as sa_update
+
+            session.execute(
+                sa_update(BotTrade)
+                .where(BotTrade.id == trade_id)
+                .values(**t_updates)
+            )
+            session.execute(
+                sa_update(Bot)
+                .where(Bot.id == bot_id)
+                .values(**b_metrics)
+            )
+
+    await asyncio.to_thread(_atomic_exit, trade['id'], trade_updates, bot['id'], bot_metrics)
 
     logger.info(f"[BOT {bot['id']}] Exited {direction} position ({exit_type}) at {exit_price:.2f} | P&L: ${pnl:.2f} ({pnl_pct:+.2f}%) | Held: {candles_held} candles")
 
@@ -675,12 +723,16 @@ async def snapshot_equity(bot: Dict, open_trades: List[Dict], timestamp: datetim
         'open_positions': len(open_trades)
     }
 
-    snapshot_id = DatabaseService.snapshot_equity(bot['id'], equity_data)
+    snapshot_id = await asyncio.to_thread(
+        DatabaseService.snapshot_equity, bot['id'], equity_data
+    )
 
     # Update bot current_equity
-    DatabaseService.update_bot_metrics(bot['id'], {
-        'current_equity': Decimal(str(equity))
-    })
+    await asyncio.to_thread(
+        DatabaseService.update_bot_metrics,
+        bot['id'],
+        {'current_equity': Decimal(str(equity))}
+    )
 
     # Log snapshot with key metrics
     logger.info(
@@ -690,6 +742,123 @@ async def snapshot_equity(bot: Dict, open_trades: List[Dict], timestamp: datetim
     )
 
     return snapshot_id
+
+
+# ============================================================================
+# GAP CATCH-UP
+# ============================================================================
+
+async def catch_up_bots(up_to_exclusive: datetime, bots=None, enforce_active_status: bool = True) -> int:
+    """Replay every finalized candle a bot has not processed yet, up to (but not
+    including) `up_to_exclusive` — normally the current live candle.
+
+    `bots`: explicit bot list to replay. Defaults to the active bots (live startup
+    path). A one-shot gap-fill passes the full bot list with
+    `enforce_active_status=False` so it can run while bots are paused — that lets
+    the fill run without the live executor racing it.
+
+    Why this exists: the live loop only ever looks at the single latest finalized
+    candle. Any time the executor is paused or the container is down for longer
+    than one candle (3 min), a gap of unprocessed candles opens between each bot's
+    last equity snapshot and "now". Without this, those candles are silently
+    skipped and the equity curve has a hole. This makes the executor self-healing:
+    on startup it walks the gap forward, reusing the SAME enter/exit/snapshot
+    functions and the SAME zone-at-time + quality gate as the historical backfill,
+    so the seam between reconstructed history and live trading is invisible.
+
+    Continues from each bot's CURRENT persisted state (balance, open trades) — no
+    reset, no truncate. Returns the number of candles replayed.
+    """
+    if bots is None:
+        bots = await asyncio.to_thread(DatabaseService.get_active_bots)
+    if not bots:
+        return 0
+
+    # Resume point = earliest "last snapshot" across the bots being replayed. Per-bot dedup
+    # below guarantees we never re-snapshot a candle a bot already has.
+    last_snap_by_bot: Dict[int, datetime] = {}
+    for bot in bots:
+        snap = await asyncio.to_thread(DatabaseService.get_latest_equity_snapshot, bot['id'])
+        if not snap:
+            continue
+        ts = snap['timestamp']
+        if isinstance(ts, str):
+            ts = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        last_snap_by_bot[bot['id']] = ts
+
+    if not last_snap_by_bot:
+        return 0
+
+    resume_from = min(last_snap_by_bot.values())
+    candles = await asyncio.to_thread(
+        DatabaseService.get_finalized_candles_between, resume_from, up_to_exclusive
+    )
+    if not candles:
+        return 0
+
+    logger.info(
+        f"[BOT EXECUTOR] Catch-up: replaying {len(candles)} gap candle(s) "
+        f"from {resume_from.isoformat()} to {up_to_exclusive.isoformat()}"
+    )
+    print(
+        f"[BOT EXECUTOR] Catch-up: replaying {len(candles)} gap candle(s) "
+        f"from {resume_from.isoformat()} to {up_to_exclusive.isoformat()}",
+        flush=True,
+    )
+
+    candles_held_tracker: Dict[int, int] = {}
+
+    for candle in candles:
+        candle_ts = candle['timestamp']
+        if isinstance(candle_ts, str):
+            candle_ts = datetime.fromisoformat(candle_ts.replace('Z', '+00:00'))
+        if candle_ts.tzinfo is None:
+            candle_ts = candle_ts.replace(tzinfo=timezone.utc)
+
+        # Zone as it was at this candle (not "latest"), then quality gate.
+        zones = await asyncio.to_thread(DatabaseService.get_zone_at_time, candle_ts)
+        tradable_zones = filter_zones_by_quality(zones) if zones else {}
+
+        for bot in bots:
+            bot_id = bot['id']
+
+            # Per-bot dedup: skip candles this bot already snapshotted.
+            if bot_id in last_snap_by_bot and last_snap_by_bot[bot_id] >= candle_ts:
+                continue
+
+            try:
+                open_trades = await asyncio.to_thread(DatabaseService.get_open_trades, bot_id)
+
+                for trade in open_trades:
+                    candles_held_tracker[trade['id']] = candles_held_tracker.get(trade['id'], 0) + 1
+                    exit_params = await check_exit_conditions(trade, candle, candles_held_tracker[trade['id']])
+                    if exit_params:
+                        bot = await asyncio.to_thread(DatabaseService.get_bot_by_id, bot_id)
+                        await exit_position(bot, trade, exit_params, candle_ts)
+                        del candles_held_tracker[trade['id']]
+
+                open_trades = await asyncio.to_thread(DatabaseService.get_open_trades, bot_id)
+                if len(open_trades) == 0 and tradable_zones:
+                    entry_params = await check_entry_signals(bot, candle, tradable_zones)
+                    if entry_params:
+                        bot = await asyncio.to_thread(DatabaseService.get_bot_by_id, bot_id)
+                        if bot and (not enforce_active_status or bot['status'] == 'active'):
+                            await enter_position(bot, entry_params, candle_ts)
+
+                # Snapshot only on a real 3-minute candle boundary, matching live.
+                if candle_ts.minute % 3 == 0 and candle_ts.second == 0:
+                    bot = await asyncio.to_thread(DatabaseService.get_bot_by_id, bot_id)
+                    open_trades = await asyncio.to_thread(DatabaseService.get_open_trades, bot_id)
+                    await snapshot_equity(bot, open_trades, candle_ts, candle['price_close'])
+            except Exception as e:
+                logger.error(f"[BOT {bot_id}] Catch-up error at {candle_ts.isoformat()}: {e}", exc_info=True)
+                continue
+
+    logger.info(f"[BOT EXECUTOR] Catch-up complete: {len(candles)} candle(s) replayed")
+    print(f"[BOT EXECUTOR] Catch-up complete: {len(candles)} candle(s) replayed", flush=True)
+    return len(candles)
 
 
 # ============================================================================
@@ -736,11 +905,10 @@ async def bot_execution_loop():
 
     # Track last processed candle timestamp to avoid reprocessing
     # Initialize from database on startup
-    from datetime import timezone
     last_processed_timestamp = {}  # bot_id -> last_timestamp
-    bots = DatabaseService.get_active_bots()
+    bots = await asyncio.to_thread(DatabaseService.get_active_bots)
     for bot in bots:
-        last_snap = DatabaseService.get_latest_equity_snapshot(bot['id'])
+        last_snap = await asyncio.to_thread(DatabaseService.get_latest_equity_snapshot, bot['id'])
         if last_snap:
             ts = last_snap['timestamp']
             if isinstance(ts, str):
@@ -752,13 +920,45 @@ async def bot_execution_loop():
 
     logger.info(f"[BOT EXECUTOR] Initialized with last processed timestamps: {last_processed_timestamp}")
 
+    # Self-healing: replay any gap between each bot's last snapshot and the current
+    # live candle before entering the live loop. A catch-up failure must NOT block
+    # going live — log and continue (better live-with-gap than a dead executor).
+    try:
+        live_candle = await asyncio.to_thread(DatabaseService.get_last_finalized_candle)
+        if live_candle:
+            up_to = live_candle['timestamp']
+            if isinstance(up_to, str):
+                up_to = datetime.fromisoformat(up_to.replace('Z', '+00:00'))
+            if up_to.tzinfo is None:
+                up_to = up_to.replace(tzinfo=timezone.utc)
+            replayed = await catch_up_bots(up_to)
+            if replayed:
+                # Refresh dedup markers so the live loop does not re-snapshot
+                # candles the catch-up just wrote.
+                for bot in await asyncio.to_thread(DatabaseService.get_active_bots):
+                    snap = await asyncio.to_thread(DatabaseService.get_latest_equity_snapshot, bot['id'])
+                    if not snap:
+                        continue
+                    ts = snap['timestamp']
+                    if isinstance(ts, str):
+                        ts = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=timezone.utc)
+                    last_processed_timestamp[bot['id']] = ts
+    except Exception as e:
+        logger.error(f"[BOT EXECUTOR] Catch-up failed (continuing to live loop): {e}", exc_info=True)
+
+    # Maximum age for zone data before we refuse to enter new positions.
+    ZONE_FRESHNESS_LIMIT = timedelta(hours=2)
+
     while True:
         try:
             await asyncio.sleep(5)
 
-            # CRITICAL FIX: Renew bot executor lock EVERY iteration (before any blocking DB operations)
-            # This prevents lock expiration if DatabaseService.commit() blocks the event loop
-            # for 80+ seconds (e.g., when processing multiple simultaneous bot exits)
+            # Renew bot executor lock BEFORE any DB operations.
+            # Lock TTL is 30s; this iteration runs every 5s, so we have 6 chances
+            # per TTL period.  All DB calls are now off the event loop thread via
+            # asyncio.to_thread(), so the loop itself stays unblocked.
             if not RedisService.renew_bot_executor_lock(container_id):
                 logger.error("[BOT EXECUTOR] Lost lock ownership. Exiting.")
                 print("[BOT EXECUTOR] Lost lock ownership. Exiting.", flush=True)
@@ -766,15 +966,40 @@ async def bot_execution_loop():
             last_lock_renewal = asyncio.get_event_loop().time()
             logger.debug(f"[BOT EXECUTOR] Lock renewed (container_id={container_id})")
 
-            # Get latest finalized candle (may block if DB is slow)
-            candle = DatabaseService.get_last_finalized_candle()
+            # All DatabaseService calls are run in a thread pool so the asyncio
+            # event loop is never blocked by synchronous DB I/O.
+            candle = await asyncio.to_thread(DatabaseService.get_last_finalized_candle)
             if not candle:
                 continue
 
-            # Get latest zones
-            zones = DatabaseService.get_latest_zones()
+            zones = await asyncio.to_thread(DatabaseService.get_latest_zones)
             if not zones:
                 continue
+
+            # Zone freshness guard: refuse new entries on stale zones.
+            # zones is a dict keyed by signal_type; each value has a 'timestamp' field
+            # set by zone_pipeline when the snapshot was saved.
+            now_utc = datetime.now(timezone.utc)
+            zones_are_fresh = True
+            for signal_type, zone_data in zones.items():
+                zone_ts = zone_data.get('timestamp')
+                if zone_ts is None:
+                    # timestamp not returned by get_latest_zones — skip freshness check
+                    # for this signal type to avoid false positives
+                    continue
+                if isinstance(zone_ts, str):
+                    zone_ts = datetime.fromisoformat(zone_ts.replace('Z', '+00:00'))
+                if zone_ts.tzinfo is None:
+                    zone_ts = zone_ts.replace(tzinfo=timezone.utc)
+                zone_age = now_utc - zone_ts
+                if zone_age > ZONE_FRESHNESS_LIMIT:
+                    logger.warning(
+                        f"[BOT EXECUTOR] Zone for {signal_type!r} is STALE "
+                        f"(age={zone_age}, limit={ZONE_FRESHNESS_LIMIT}). "
+                        f"Skipping new entries this cycle."
+                    )
+                    zones_are_fresh = False
+                    break
 
             # Normalize candle timestamp ONCE at the beginning (before any bot processing)
             candle_ts = candle['timestamp']
@@ -782,16 +1007,17 @@ async def bot_execution_loop():
                 candle_ts = datetime.fromisoformat(candle_ts.replace('Z', '+00:00'))
             # Ensure timezone-aware
             if candle_ts.tzinfo is None:
-                from datetime import timezone
                 candle_ts = candle_ts.replace(tzinfo=timezone.utc)
 
             # Get active bots
-            bots = DatabaseService.get_active_bots()
+            bots = await asyncio.to_thread(DatabaseService.get_active_bots)
 
             for bot in bots:
                 try:
                     # Get open trades
-                    open_trades = DatabaseService.get_open_trades(bot['id'])
+                    open_trades = await asyncio.to_thread(
+                        DatabaseService.get_open_trades, bot['id']
+                    )
 
                     # Process open positions (check exits)
                     for trade in open_trades:
@@ -811,12 +1037,20 @@ async def bot_execution_loop():
 
                     # If no open position, check entry signals
                     # Refresh open_trades after potential exits
-                    open_trades = DatabaseService.get_open_trades(bot['id'])
-                    if len(open_trades) == 0:
-                        entry_params = await check_entry_signals(bot, candle, zones)
+                    open_trades = await asyncio.to_thread(
+                        DatabaseService.get_open_trades, bot['id']
+                    )
+                    if len(open_trades) == 0 and zones_are_fresh:
+                        tradable_zones = filter_zones_by_quality(zones)
+                        entry_params = (
+                            await check_entry_signals(bot, candle, tradable_zones)
+                            if tradable_zones else None
+                        )
                         if entry_params:
                             # Refresh bot to get latest balance
-                            bot = DatabaseService.get_bot_by_id(bot['id'])
+                            bot = await asyncio.to_thread(
+                                DatabaseService.get_bot_by_id, bot['id']
+                            )
                             if bot and bot['status'] == 'active':
                                 await enter_position(bot, entry_params, candle_ts)
 
@@ -828,8 +1062,12 @@ async def bot_execution_loop():
                             continue  # Already processed
 
                         # Refresh bot and open trades for snapshot
-                        bot = DatabaseService.get_bot_by_id(bot['id'])
-                        open_trades = DatabaseService.get_open_trades(bot['id'])
+                        bot = await asyncio.to_thread(
+                            DatabaseService.get_bot_by_id, bot['id']
+                        )
+                        open_trades = await asyncio.to_thread(
+                            DatabaseService.get_open_trades, bot['id']
+                        )
                         await snapshot_equity(bot, open_trades, candle_ts, candle['price_close'])
 
                         # Mark as processed

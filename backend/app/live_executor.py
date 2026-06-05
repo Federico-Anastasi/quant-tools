@@ -99,7 +99,7 @@ async def live_execution_loop():
                 await process_fill_event(fill, hl_client, symbol)
 
             # Get latest finalized candle (even if INACTIVE, to detect and log)
-            candle = DatabaseService.get_last_finalized_candle(symbol=symbol)
+            candle = await asyncio.to_thread(DatabaseService.get_last_finalized_candle, symbol)
             if not candle:
                 continue
 
@@ -124,11 +124,13 @@ async def live_execution_loop():
                     for pos in account_info['positions']
                 )
 
-                DatabaseService.create_account_snapshot(
-                    timestamp=datetime.utcnow(),
-                    equity=equity,
-                    unrealized_pnl=unrealized_pnl,
-                    total_margin_used=account_info['totalMarginUsed']
+                _snap_ts = datetime.utcnow()
+                _snap_eq = equity
+                _snap_upnl = unrealized_pnl
+                _snap_margin = account_info['totalMarginUsed']
+                await asyncio.to_thread(
+                    DatabaseService.create_account_snapshot,
+                    _snap_ts, _snap_eq, _snap_upnl, _snap_margin
                 )
 
                 logger.debug(f"[SNAPSHOT] Equity=${equity:.2f} (unrealized P&L: ${unrealized_pnl:.2f})")
@@ -141,7 +143,7 @@ async def live_execution_loop():
                 continue
 
             # Get latest zones
-            zones = DatabaseService.get_latest_zones(symbol=symbol)
+            zones = await asyncio.to_thread(DatabaseService.get_latest_zones, symbol)
             if not zones:
                 logger.warning("No zones available, skipping cycle")
                 continue
@@ -153,7 +155,7 @@ async def live_execution_loop():
             if has_position:
                 # Position exists - check exit conditions
                 logger.info("Position exists - checking exit conditions")
-                open_trade = DatabaseService.get_open_live_trade(symbol=symbol)
+                open_trade = await asyncio.to_thread(DatabaseService.get_open_live_trade, symbol)
 
                 if open_trade:
                     should_close = await check_exit_conditions(
@@ -164,12 +166,13 @@ async def live_execution_loop():
                     )
 
                     if should_close['exit']:
-                        DatabaseService.close_live_trade(
-                            trade_id=open_trade['id'],
-                            exit_price=should_close['exit_price'],
-                            exit_time=should_close.get('exit_time', datetime.utcnow()),
-                            exit_type=should_close['exit_type'],
-                            realized_pnl=should_close.get('realized_pnl')  # From fallback check
+                        await asyncio.to_thread(
+                            DatabaseService.close_live_trade,
+                            open_trade['id'],
+                            should_close['exit_price'],
+                            should_close.get('exit_time', datetime.utcnow()),
+                            should_close['exit_type'],
+                            should_close.get('realized_pnl')
                         )
                         logger.info(f"Position closed: {should_close['exit_type']}")
                 else:
@@ -177,7 +180,7 @@ async def live_execution_loop():
 
             else:
                 # No position on Hyperliquid - check if we have orphaned trade in DB
-                open_trade = DatabaseService.get_open_live_trade(symbol=symbol)
+                open_trade = await asyncio.to_thread(DatabaseService.get_open_live_trade, symbol)
 
                 if open_trade:
                     # Position was closed on Hyperliquid but not in DB - FALLBACK RECOVERY
@@ -193,23 +196,25 @@ async def live_execution_loop():
                     )
 
                     if should_close.get('exit'):
-                        DatabaseService.close_live_trade(
-                            trade_id=open_trade['id'],
-                            exit_price=should_close['exit_price'],
-                            exit_time=should_close.get('exit_time', datetime.utcnow()),
-                            exit_type=should_close['exit_type'],
-                            realized_pnl=should_close.get('realized_pnl')
+                        await asyncio.to_thread(
+                            DatabaseService.close_live_trade,
+                            open_trade['id'],
+                            should_close['exit_price'],
+                            should_close.get('exit_time', datetime.utcnow()),
+                            should_close['exit_type'],
+                            should_close.get('realized_pnl')
                         )
                         logger.info(f"RECOVERED: Position closed via fallback - {should_close['exit_type']} at ${should_close['exit_price']:.2f}, PnL=${should_close.get('realized_pnl', 0):.2f}")
                     else:
                         # Can't find fill - close with current price as emergency fallback
                         logger.error("Could not find exit fill! Closing with current price (emergency fallback)")
-                        DatabaseService.close_live_trade(
-                            trade_id=open_trade['id'],
-                            exit_price=candle['price_close'],
-                            exit_time=datetime.utcnow(),
-                            exit_type='MANUAL',
-                            realized_pnl=None  # Will be calculated
+                        await asyncio.to_thread(
+                            DatabaseService.close_live_trade,
+                            open_trade['id'],
+                            candle['price_close'],
+                            datetime.utcnow(),
+                            'MANUAL',
+                            None
                         )
                 else:
                     # No position anywhere - check entry signal
@@ -338,9 +343,9 @@ async def process_fill_event(fill: dict, hl_client, symbol: str):
             fill_oid = str(fill['oid'])
 
             # Find trade by entry_order_id and update entry_fee
-            DatabaseService.update_live_trade_entry_fee(
-                order_id=fill_oid,
-                entry_fee=entry_fee
+            await asyncio.to_thread(
+                DatabaseService.update_live_trade_entry_fee,
+                fill_oid, entry_fee
             )
             logger.info(f"[ENTRY FILL] Updated entry_fee=${entry_fee:.2f} for OID={fill_oid}")
             return
@@ -351,7 +356,7 @@ async def process_fill_event(fill: dict, hl_client, symbol: str):
             return
 
         # Get open trade from DB
-        open_trade = DatabaseService.get_open_live_trade(symbol=symbol)
+        open_trade = await asyncio.to_thread(DatabaseService.get_open_live_trade, symbol)
         if not open_trade:
             logger.warning(f"[FILL] Close fill detected but no open trade in DB (oid={fill['oid']})")
             return
@@ -375,13 +380,14 @@ async def process_fill_event(fill: dict, hl_client, symbol: str):
         net_pnl = fill['closedPnl'] - entry_fee - exit_fee
 
         # Close trade in DB with net PnL
-        DatabaseService.close_live_trade(
-            trade_id=open_trade['id'],
-            exit_price=fill['price'],
-            exit_time=fill['time'],
-            exit_type=exit_type,
-            realized_pnl=net_pnl,
-            exit_fee=exit_fee
+        await asyncio.to_thread(
+            DatabaseService.close_live_trade,
+            open_trade['id'],
+            fill['price'],
+            fill['time'],
+            exit_type,
+            net_pnl,
+            exit_fee
         )
 
         logger.info(

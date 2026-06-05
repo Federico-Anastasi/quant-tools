@@ -29,14 +29,14 @@ async def process_candles():
     """Process trades into candles"""
 
     # Step 1: Get last finalized candle timestamp
-    last_candle = DatabaseService.get_last_finalized_candle()
+    last_candle = await asyncio.to_thread(DatabaseService.get_last_finalized_candle)
     if last_candle:
         since_time = last_candle['timestamp']
     else:
         since_time = datetime.utcnow() - timedelta(hours=1)
 
     # Step 2: Get all trades since last finalized
-    trades = DatabaseService.get_trades_since(since_time)
+    trades = await asyncio.to_thread(DatabaseService.get_trades_since, since_time)
 
     if not trades:
         return
@@ -52,10 +52,10 @@ async def process_candles():
     latest_candle = floor_to_3min(latest_trade_ts)
 
     # Step 5: Get historical candles for rolling avg (last 10 finalized)
-    historical = DatabaseService.get_candles(symbol="BTC", limit=10)
+    historical = await asyncio.to_thread(DatabaseService.get_candles, "BTC", 10)
 
     # Step 5.5: Get last finalized candle BEFORE loop (for continuity)
-    last_finalized = DatabaseService.get_last_finalized_candle()
+    last_finalized = await asyncio.to_thread(DatabaseService.get_last_finalized_candle)
 
     # Step 6: Process each candle
     # Track CVD continuity across candles in this loop
@@ -75,15 +75,20 @@ async def process_candles():
         if is_finalized:
             # Query to check if this candle exists and is finalized
             from app.database import CVDCandle
-            with DatabaseService.get_session() as session:
-                existing = session.query(CVDCandle).filter(
-                    CVDCandle.timestamp == candle_start,
-                    CVDCandle.finalized == True
-                ).first()
+            _ts = candle_start  # capture for lambda
 
-                if existing:
-                    # Already finalized - skip processing to avoid recalculation
-                    continue
+            def _check_existing(ts=_ts):
+                with DatabaseService.get_session() as session:
+                    return session.query(CVDCandle).filter(
+                        CVDCandle.timestamp == ts,
+                        CVDCandle.finalized == True
+                    ).first()
+
+            existing = await asyncio.to_thread(_check_existing)
+
+            if existing:
+                # Already finalized - skip processing to avoid recalculation
+                continue
 
         if is_finalized:
             # FINALIZED CANDLE
@@ -133,7 +138,7 @@ async def process_candles():
                 'finalized': True
             }
 
-            DatabaseService.upsert_candle(candle_data)
+            await asyncio.to_thread(DatabaseService.upsert_candle, candle_data)
             print(f"[CVD] Finalized candle {candle_start} | signal={metrics['signal']} | v1={cumulative_v1:.1f} | cvd={metrics['cvd_ohlc']['close']:.2f}", flush=True)
 
             # MULTI-CONTAINER ARCHITECTURE: Trigger LOB calculation via Redis Pub/Sub
@@ -192,5 +197,5 @@ async def process_candles():
                 'finalized': False
             }
 
-            DatabaseService.upsert_candle(candle_data)
+            await asyncio.to_thread(DatabaseService.upsert_candle, candle_data)
             print(f"[CVD] In-progress candle {candle_start} | signal={metrics['signal']}", flush=True)

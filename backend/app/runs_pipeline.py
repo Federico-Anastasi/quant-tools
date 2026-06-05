@@ -28,14 +28,14 @@ async def compute_runs():
 
     # Step 1: Get last run end time
     from datetime import timezone
-    last_run_time = DatabaseService.get_last_run_time()
+    last_run_time = await asyncio.to_thread(DatabaseService.get_last_run_time)
     if last_run_time:
         since_time = last_run_time
     else:
         since_time = datetime.now(timezone.utc) - timedelta(hours=1)
 
     # Step 2: Get new trades
-    trades = DatabaseService.get_trades_since(since_time)
+    trades = await asyncio.to_thread(DatabaseService.get_trades_since, since_time)
 
     if len(trades) < 10:
         return
@@ -53,7 +53,7 @@ async def compute_runs():
         # Save closed runs only (exclude last in-progress run)
         if len(runs) > 1:
             closed_runs = runs[:-1]
-            DatabaseService.bulk_insert_runs(closed_runs)
+            await asyncio.to_thread(DatabaseService.bulk_insert_runs, closed_runs)
             print(f"[RUNS] Saved {len(closed_runs)} closed runs", flush=True)
 
 

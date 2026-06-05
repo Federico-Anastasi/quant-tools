@@ -27,7 +27,7 @@ last_trade_time = None
 async def on_message(msg: str):
     global ws_connected, last_trade_time
 
-    data = json.loads(msg)["data"]
+    data = json.loads(msg).get("data")
     if isinstance(data, list):
         batch = []
         for t in data:
@@ -92,6 +92,7 @@ async def flush_loop():
 async def websocket_loop():
     global ws_connected
 
+    backoff = 5
     while True:
         try:
             ws_connected = False
@@ -103,14 +104,16 @@ async def websocket_loop():
                 }))
                 print(f"[WS] Connected to Hyperliquid - {COIN}", flush=True)
                 ws_connected = True
+                backoff = 5  # reset after a successful connection
 
                 while True:
                     await on_message(await ws.recv())
 
         except Exception as e:
-            print(f"[WS] Error: {e}, reconnecting in 5s...", flush=True)
+            print(f"[WS] Error: {e}, reconnecting in {backoff}s...", flush=True)
             ws_connected = False
-            await asyncio.sleep(5)
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 60)
 
 
 async def start_collector():

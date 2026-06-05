@@ -124,6 +124,22 @@ class RedisService:
     # BOT EXECUTOR LOCK METHODS (Singleton enforcement)
     # ============================================================================
 
+    # Lua script: atomically renew only if we still own the lock.
+    # Returns 1 on success, 0 if lock is owned by someone else.
+    _RENEW_LOCK_SCRIPT = """
+local current = redis.call('GET', KEYS[1])
+if current == ARGV[1] then
+    redis.call('EXPIRE', KEYS[1], ARGV[2])
+    return 1
+else
+    return 0
+end
+"""
+
+    # TTL for the bot executor lock (seconds).
+    # Must be comfortably larger than the worst-case DB call duration.
+    _BOT_LOCK_TTL = 30
+
     @classmethod
     def acquire_bot_executor_lock(cls, container_id: str) -> bool:
         """
@@ -135,21 +151,21 @@ class RedisService:
         Returns:
             True if lock acquired, False if already held by another container
 
-        TTL: 10 seconds (must renew before expiration)
+        TTL: 30 seconds (must renew before expiration)
         """
         try:
             acquired = cls.get_client().set(
                 "bot_executor_lock",
                 container_id,
                 nx=True,  # Only set if not exists
-                ex=10     # Expire in 10 seconds
+                ex=cls._BOT_LOCK_TTL
             )
             if acquired:
                 logger.info(f"[REDIS] Bot executor lock acquired by {container_id}")
             else:
                 current_owner = cls.get_client().get("bot_executor_lock")
                 logger.warning(f"[REDIS] Bot executor lock already held by {current_owner}")
-            return acquired
+            return bool(acquired)
         except Exception as e:
             logger.error(f"[REDIS] Failed to acquire bot executor lock: {e}")
             return False
@@ -157,7 +173,10 @@ class RedisService:
     @classmethod
     def renew_bot_executor_lock(cls, container_id: str) -> bool:
         """
-        Renew bot executor lock (extends TTL by 10 seconds)
+        Atomically renew bot executor lock (extends TTL) using a Lua script.
+
+        The GET-then-EXPIRE pattern is replaced by a single atomic Lua call so
+        there is no TOCTOU window between ownership check and TTL extension.
 
         Args:
             container_id: Unique container identifier (must match lock owner)
@@ -166,13 +185,21 @@ class RedisService:
             True if lock renewed successfully, False if lost ownership
         """
         try:
-            current_owner = cls.get_client().get("bot_executor_lock")
-            if current_owner == container_id:
-                cls.get_client().expire("bot_executor_lock", 10)
+            result = cls.get_client().eval(
+                cls._RENEW_LOCK_SCRIPT,
+                1,                          # number of KEYS
+                "bot_executor_lock",        # KEYS[1]
+                container_id,               # ARGV[1]
+                str(cls._BOT_LOCK_TTL)      # ARGV[2]
+            )
+            if result == 1:
                 logger.debug(f"[REDIS] Bot executor lock renewed by {container_id}")
                 return True
             else:
-                logger.error(f"[REDIS] Cannot renew lock: owned by {current_owner}, not {container_id}")
+                current_owner = cls.get_client().get("bot_executor_lock")
+                logger.error(
+                    f"[REDIS] Cannot renew lock: owned by {current_owner!r}, not {container_id!r}"
+                )
                 return False
         except Exception as e:
             logger.error(f"[REDIS] Failed to renew bot executor lock: {e}")
