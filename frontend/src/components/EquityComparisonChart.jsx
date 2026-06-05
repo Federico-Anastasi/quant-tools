@@ -280,7 +280,10 @@ function EquityComparisonChart({ bots = [], equityCurves = {} }) {
       ]
     };
 
-    chart.setOption(option);
+    // notMerge: true so series removed from `option` (e.g. a bot toggled out of
+    // visibleBots) are dropped instead of lingering from the previous render.
+    // dataZoom start/end are already written into `option`, so zoom is preserved.
+    chart.setOption(option, { notMerge: true });
 
     // Save dataZoom state when user changes zoom
     const handleDataZoom = (params) => {
@@ -293,19 +296,21 @@ function EquityComparisonChart({ bots = [], equityCurves = {} }) {
     };
     chart.on('dataZoom', handleDataZoom);
 
-    // Handle window resize
+    // Handle window resize — added and removed in THIS effect so there is
+    // exactly one listener at a time (no accumulation across re-renders).
     const handleResize = () => {
-      chart.resize();
+      if (chartInstance.current) chartInstance.current.resize();
     };
     window.addEventListener('resize', handleResize);
 
     return () => {
       chart.off('dataZoom', handleDataZoom);
       window.removeEventListener('resize', handleResize);
+      // Do NOT dispose here — that is the unmount effect below.
     };
   }, [bots, equityCurves, visibleBots]);
 
-  // Cleanup on unmount
+  // Dispose chart instance only on unmount
   useEffect(() => {
     return () => {
       if (chartInstance.current) {

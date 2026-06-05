@@ -111,32 +111,42 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
       return;
     }
 
-    // Calculate price range from BOTH candles AND LOB price_bins
+    // ── AUTO RANGE: clamp to a sensible band around current price ─────────────
+    // The LOB density window spans 720 h (30 days), so price_bins cover a wide
+    // historical range (e.g. $60k–$84k) while today's price sits near one edge.
+    // Using the full LOB range as the Y-axis extent squishes the live chart into
+    // a tiny fraction of the visible area.
+    //
+    // Fix: the auto range is the union of
+    //   (a) the candle high/low of the *visible* candles (what the chart already
+    //       shows), with a small padding, AND
+    //   (b) a hard ±LOB_CLAMP_PCT band centred on p_current.
+    //
+    // We take the TIGHTER of the two so the view is always centred on live price
+    // while still fitting recent candle swings.  LOB bins outside this range are
+    // simply not rendered by the Canvas clip / priceToY mapping – no crash.
+    //
+    // Tunable constant: increase for a wider default view, decrease for tighter.
+    const LOB_CLAMP_PCT = 0.07; // ±7 % around p_current
+
     const allCandlePrices = candles.flatMap(c => [c[0], c[1], c[2], c[3]]);
     const candleMin = Math.min(...allCandlePrices);
     const candleMax = Math.max(...allCandlePrices);
 
-    // Include LOB price_bins range ONLY where we have actual V_diff data (non-zero)
-    const activeLobPrices = price_bins.filter((price, idx) => {
-      const v = vDiffData[idx];
-      return v !== null && v !== undefined && v !== 0;
-    });
+    // Band (a): candles + small padding
+    const candleRange = candleMax - candleMin;
+    const candlePad = candleRange * 0.05;
+    const candleBandMin = candleMin - candlePad;
+    const candleBandMax = candleMax + candlePad;
 
-    // Use the wider range between candles and active LOB bins
-    let dataMin = candleMin;
-    let dataMax = candleMax;
+    // Band (b): fixed % around live price
+    const clampBandMin = p_current * (1 - LOB_CLAMP_PCT);
+    const clampBandMax = p_current * (1 + LOB_CLAMP_PCT);
 
-    if (activeLobPrices.length > 0) {
-      const lobMin = Math.min(...activeLobPrices);
-      const lobMax = Math.max(...activeLobPrices);
-      dataMin = Math.min(candleMin, lobMin);
-      dataMax = Math.max(candleMax, lobMax);
-    }
-
-    const priceRange = dataMax - dataMin;
-    const padding = priceRange * 0.02;
-    const visiblePriceMin = dataMin - padding;
-    const visiblePriceMax = dataMax + padding;
+    // Auto range = tighter of the two bands (both are already centred near live price)
+    const visiblePriceMin = Math.max(candleBandMin, clampBandMin);
+    const visiblePriceMax = Math.min(candleBandMax, clampBandMax);
+    // ────────────────────────────────────────────────────────────────────────────
 
     // Note: Heatmap data is now processed directly in renderHeatmap() from all snapshots
     // This supports 2D temporal visualization (time × price)
@@ -212,16 +222,32 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
       // Titles removed - tab header already identifies content ("Liquidity")
       // More space for chart, cleaner professional design
       tooltip: {
-        show: false
-      },
-      axisPointer: {
-        show: true,
-        type: 'line',
-        link: [{ xAxisIndex: 'all' }],
-        lineStyle: {
-          color: 'rgba(255, 255, 255, 0.4)',
-          width: 1,
-          type: 'dashed'
+        trigger: 'axis',
+        axisPointer: {
+          type: 'cross',
+          lineStyle: { color: '#64748b', width: 1, type: 'dashed' }
+        },
+        backgroundColor: 'rgba(11, 14, 17, 0.95)',
+        borderColor: '#2a2e39',
+        textStyle: { color: '#cbd5e1', fontSize: 11 },
+        formatter: (params) => {
+          if (!params || params.length === 0) return '';
+          const candleData = params.find(p => p.seriesName === 'BTC Price');
+          if (candleData && candleData.data) {
+            const [o, c, l, h] = candleData.data;
+            const time = new Date(timestamps[candleData.dataIndex]);
+            const timeStr = `${time.getHours()}:${String(time.getMinutes()).padStart(2, '0')}`;
+            return `
+              <div style="padding: 6px;">
+                <div style="font-weight: bold; margin-bottom: 4px; color: #00f0ff;">${timeStr}</div>
+                <div>Open: <span style="color: #cbd5e1;">$${o.toLocaleString()}</span></div>
+                <div>High: <span style="color: #10b981;">$${h.toLocaleString()}</span></div>
+                <div>Low: <span style="color: #ef4444;">$${l.toLocaleString()}</span></div>
+                <div>Close: <span style="color: #cbd5e1; font-weight: bold;">$${c.toLocaleString()}</span></div>
+              </div>
+            `;
+          }
+          return '';
         }
       },
       xAxis: [
@@ -254,17 +280,7 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
           },
           splitLine: { show: false },
           axisPointer: {
-            show: true,
-            lineStyle: {
-              color: 'rgba(255, 255, 255, 0.4)',
-              width: 1,
-              type: 'dashed'
-            },
             label: {
-              show: true,
-              backgroundColor: '#1e232b',
-              color: '#fff',
-              fontSize: 10,
               formatter: (params) => {
                 try {
                   const date = new Date(params.value);
@@ -313,16 +329,8 @@ const LOBChart = ({ priceData, lobData, priceBin = 50, onPriceBinChange = () => 
           axisLabel: {
             color: '#8b93a0',
             fontSize: 10,
-            formatter: (val) => '$' + Math.round(val).toLocaleString()
-          },
-          axisPointer: {
-            show: true,
-            label: {
-              show: true,
-              backgroundColor: '#1e232b',
-              color: '#fff',
-              fontSize: 10,
-              formatter: (params) => '$' + Math.round(params.value).toLocaleString()
+            formatter: (val) => {
+              return '$' + val.toLocaleString('en-US', { maximumFractionDigits: 0 });
             }
           },
           splitLine: { lineStyle: { color: '#1e232b', width: 1 } },

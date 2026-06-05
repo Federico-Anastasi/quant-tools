@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
 import BotCard from './BotCard';
 import TradeHistoryModal from './TradeHistoryModal';
@@ -22,6 +22,11 @@ function BotsTab() {
   const [selectedBot, setSelectedBot] = useState(null);  // For trade history modal
   const [trades, setTrades] = useState([]);
   const [equityCurves, setEquityCurves] = useState({});  // bot_id -> equity data
+
+  // Keep a ref mirror of current bots so intervals always see fresh state
+  // without needing bots as a dependency (which would reset the interval on every poll).
+  const botsRef = useRef(bots);
+  useEffect(() => { botsRef.current = bots; }, [bots]);
 
   // Memoize bot IDs string for stable dependency comparison
   const botIdsString = useMemo(() => bots.map(b => b.id).sort().join(','), [bots]);
@@ -109,10 +114,9 @@ function BotsTab() {
     fetchAllEquityCurves();
 
     // Refresh equity every 5 seconds (same as snapshots creation interval)
-    // IMPORTANT: Use botIds from closure, not dependency, to avoid interval reset
+    // botsRef always reflects the latest bots state — no stale closure issue.
     const interval = setInterval(() => {
-      // Re-fetch current botIds from state instead of closure
-      const currentBotIds = bots.map(b => b.id);
+      const currentBotIds = botsRef.current.map(b => b.id);
       if (currentBotIds.length === 0) return;
 
       axios.post(`${API_URL}/api/bots/equity-bulk`, {

@@ -710,17 +710,17 @@ const CVDChart = ({ data, zonesData }) => {
 
             yAxis: [
                 // 0: Price (Right - SWAPPED)
-                { type: 'value', gridIndex: 0, scale: true, position: 'right', axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { color: '#8b93a0', fontSize: 10, formatter: (v) => '$' + Math.round(v).toLocaleString() }, axisPointer: { show: true, label: { formatter: (p) => '$' + Math.round(p.value).toLocaleString() } }, splitLine: { show: false } },
+                { type: 'value', gridIndex: 0, scale: true, position: 'right', axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { color: '#8b93a0', fontSize: 10, formatter: (v) => v.toFixed(0) }, splitLine: { show: false } },
                 // 1: CVD (Left - SWAPPED)
-                { type: 'value', gridIndex: 0, scale: true, position: 'left', axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { show: true, color: CONFIG.COLORS.CVD_UP, fontSize: 10, formatter: (v) => Math.round(v).toLocaleString() }, axisPointer: { show: true, label: { formatter: (p) => Math.round(p.value).toLocaleString() } }, splitLine: { lineStyle: { color: '#1e232b' } } },
+                { type: 'value', gridIndex: 0, scale: true, position: 'left', axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { show: true, color: CONFIG.COLORS.CVD_UP, fontSize: 10, formatter: (v) => v.toFixed(0) }, splitLine: { lineStyle: { color: '#1e232b' } } },
                 // 2: Order Flow (Volume)
-                { type: 'value', gridIndex: 1, axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { color: '#8b93a0', fontSize: 10, formatter: (v) => Math.round(v).toLocaleString() }, axisPointer: { show: true, label: { formatter: (p) => Math.round(p.value).toLocaleString() } }, splitLine: { lineStyle: { color: '#1e232b' } } },
+                { type: 'value', gridIndex: 1, axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { color: '#8b93a0', fontSize: 10, formatter: (v) => v.toFixed(2) }, splitLine: { lineStyle: { color: '#1e232b' } } },
                 // 3: V2 Weighted
-                { type: 'value', gridIndex: 2, axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { color: '#a855f7', fontSize: 10, formatter: (v) => Math.round(v).toLocaleString() }, axisPointer: { show: true, label: { formatter: (p) => Math.round(p.value).toLocaleString() } }, splitLine: { lineStyle: { color: '#1e232b' } } },
+                { type: 'value', gridIndex: 2, axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { color: '#a855f7', fontSize: 10, formatter: (v) => v.toFixed(1) }, splitLine: { lineStyle: { color: '#1e232b' } } },
                 // 4: V3 Momentum
-                { type: 'value', gridIndex: 3, axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { color: '#00f0ff', fontSize: 10, formatter: (v) => Math.round(v).toLocaleString() }, axisPointer: { show: true, label: { formatter: (p) => Math.round(p.value).toLocaleString() } }, splitLine: { lineStyle: { color: '#1e232b' } } },
+                { type: 'value', gridIndex: 3, axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { color: '#00f0ff', fontSize: 10, formatter: (v) => v.toFixed(1) }, splitLine: { lineStyle: { color: '#1e232b' } } },
                 // 5: V1 Cumulative
-                { type: 'value', gridIndex: 4, axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { color: '#fbbf24', fontSize: 10, formatter: (v) => Math.round(v).toLocaleString() }, axisPointer: { show: true, label: { formatter: (p) => Math.round(p.value).toLocaleString() } }, splitLine: { lineStyle: { color: '#1e232b' } } }
+                { type: 'value', gridIndex: 4, axisLine: { lineStyle: { color: '#454d5f' } }, axisLabel: { color: '#fbbf24', fontSize: 10, formatter: (v) => v.toFixed(1) }, splitLine: { lineStyle: { color: '#1e232b' } } }
             ],
 
             series: [
@@ -834,7 +834,7 @@ const CVDChart = ({ data, zonesData }) => {
         if (data && chartInstanceRef.current) {
             updateChart(data);
         }
-    }, [data]);
+    }, [data, zonesData]);
 
     // ────────────────────────────────────────────────────────────
     // RENDER

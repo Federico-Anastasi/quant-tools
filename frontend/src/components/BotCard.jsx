@@ -27,6 +27,16 @@ function BotCard({ bot, rank, equityCurve = [], onClick = () => {} }) {
 
   const strategyStyle = strategyColors[bot.strategy_type] || strategyColors.v2_pure;
 
+  // A bot is considered stale if its latest equity snapshot hasn't updated in >15 min.
+  // This catches bots whose executor stopped but whose status field still reads 'active'.
+  const STALE_THRESHOLD_MS = 15 * 60 * 1000; // 15 minutes
+  const isStale = (() => {
+    if (!equityCurve || equityCurve.length === 0) return false;
+    const lastSnapshot = equityCurve[equityCurve.length - 1];
+    const lastTime = new Date(lastSnapshot.timestamp);
+    return (Date.now() - lastTime.getTime()) > STALE_THRESHOLD_MS;
+  })();
+
   // Calculate bot uptime from first snapshot (when bot actually started trading)
   const getUptime = () => {
     if (!equityCurve || equityCurve.length === 0) return 'N/A';
@@ -45,87 +55,37 @@ function BotCard({ bot, rank, equityCurve = [], onClick = () => {} }) {
     return `${minutes}m`;
   };
 
+  // Format "last active" timestamp for stale bots
+  const getLastActive = () => {
+    if (!equityCurve || equityCurve.length === 0) return 'N/A';
+    const lastSnapshot = equityCurve[equityCurve.length - 1];
+    const lastTime = new Date(lastSnapshot.timestamp);
+    const diffMs = Date.now() - lastTime.getTime();
+
+    const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+
+    if (days > 0) return `${days}d ${hours}h ago`;
+    if (hours > 0) return `${hours}h ${minutes}m ago`;
+    return `${minutes}m ago`;
+  };
+
   // Calculate REAL-TIME total P&L (closed trades + unrealized)
   const realTimePnL = (bot.total_pnl || 0) + (bot.unrealized_pnl || 0);
-  const realTimePnLPct = ((realTimePnL / bot.starting_capital) * 100);
+  const realTimePnLPct = bot.starting_capital ? ((realTimePnL / bot.starting_capital) * 100) : 0;
 
   // P&L color based on real-time P&L
   const pnlColor = realTimePnLPct >= 0 ? 'text-neon-cyan' : 'text-neon-red';
   const pnlBg = realTimePnLPct >= 0 ? 'bg-neon-cyan/10' : 'bg-neon-red/10';
   const pnlBorder = realTimePnLPct >= 0 ? 'border-neon-cyan/20' : 'border-neon-red/20';
 
-  // Initialize equity sparkline chart
+  // Create the ECharts instance once on mount; dispose only on unmount.
   useEffect(() => {
-    if (!chartRef.current || equityCurve.length === 0) return;
+    if (!chartRef.current) return;
+    chartInstance.current = echarts.init(chartRef.current);
 
-    // Dispose existing chart
-    if (chartInstance.current) {
-      chartInstance.current.dispose();
-    }
-
-    // Create new chart
-    const chart = echarts.init(chartRef.current);
-    chartInstance.current = chart;
-
-    // Prepare data
-    const timestamps = equityCurve.map(d => d.timestamp);
-    const equityValues = equityCurve.map(d => d.equity);
-
-    // Determine color based on trend
-    const firstEquity = equityValues[0] || bot.starting_capital;
-    const lastEquity = equityValues[equityValues.length - 1] || bot.current_equity;
-    const trendColor = lastEquity >= firstEquity ? '#00E5FF' : '#FF0055';
-
-    const option = {
-      grid: {
-        left: 0,
-        right: 0,
-        top: 0,
-        bottom: 0
-      },
-      xAxis: {
-        type: 'category',
-        data: timestamps,
-        show: false
-      },
-      yAxis: {
-        type: 'value',
-        show: false
-      },
-      series: [
-        {
-          type: 'line',
-          data: equityValues,
-          smooth: true,
-          symbol: 'none',
-          lineStyle: {
-            width: 1.5,
-            color: trendColor
-          },
-          areaStyle: {
-            color: {
-              type: 'linear',
-              x: 0,
-              y: 0,
-              x2: 0,
-              y2: 1,
-              colorStops: [
-                { offset: 0, color: `${trendColor}30` },
-                { offset: 1, color: `${trendColor}05` }
-              ]
-            }
-          }
-        }
-      ]
-    };
-
-    chart.setOption(option);
-
-    // Handle resize
-    const handleResize = () => {
-      chart.resize();
-    };
-
+    const handleResize = () => chartInstance.current && chartInstance.current.resize();
     window.addEventListener('resize', handleResize);
 
     return () => {
@@ -135,6 +95,42 @@ function BotCard({ bot, rank, equityCurve = [], onClick = () => {} }) {
         chartInstance.current = null;
       }
     };
+  }, []); // run once
+
+  // Update chart data via setOption (no dispose/recreate on every data change)
+  useEffect(() => {
+    if (!chartInstance.current || equityCurve.length === 0) return;
+
+    const timestamps = equityCurve.map(d => d.timestamp);
+    const equityValues = equityCurve.map(d => d.equity);
+
+    const firstEquity = equityValues[0] || bot.starting_capital;
+    const lastEquity = equityValues[equityValues.length - 1] || bot.current_equity;
+    const trendColor = lastEquity >= firstEquity ? '#00E5FF' : '#FF0055';
+
+    chartInstance.current.setOption({
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      xAxis: { type: 'category', data: timestamps, show: false },
+      yAxis: { type: 'value', show: false },
+      series: [
+        {
+          type: 'line',
+          data: equityValues,
+          smooth: true,
+          symbol: 'none',
+          lineStyle: { width: 1.5, color: trendColor },
+          areaStyle: {
+            color: {
+              type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+              colorStops: [
+                { offset: 0, color: `${trendColor}30` },
+                { offset: 1, color: `${trendColor}05` }
+              ]
+            }
+          }
+        }
+      ]
+    }, { notMerge: true });
   }, [equityCurve, bot.starting_capital, bot.current_equity]);
 
   return (
@@ -168,12 +164,16 @@ function BotCard({ bot, rank, equityCurve = [], onClick = () => {} }) {
               <span className="text-xs font-bold text-gray-400">{rank}</span>
             </div>
 
-            {/* Bot Name + Uptime + Position Badge */}
+            {/* Bot Name + Status + Position Badge */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-bold text-gray-100 truncate">{bot.name}</h3>
-                {/* Position Badge - Moved here from card */}
-                {bot.has_open_position && (
+                {/* Stale badge takes priority over position badge */}
+                {isStale ? (
+                  <span className="inline-block text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0 bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                    INACTIVE
+                  </span>
+                ) : bot.has_open_position ? (
                   <span className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0 ${
                     bot.position_direction === 'LONG'
                       ? 'bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/30'
@@ -181,10 +181,13 @@ function BotCard({ bot, rank, equityCurve = [], onClick = () => {} }) {
                   }`}>
                     {bot.position_direction}
                   </span>
-                )}
+                ) : null}
               </div>
               <div className="text-[10px] text-gray-500 mt-0.5">
-                Uptime: <span className="text-gray-400 font-mono">{getUptime()}</span>
+                {isStale
+                  ? <>Last active: <span className="text-amber-400 font-mono">{getLastActive()}</span></>
+                  : <>Uptime: <span className="text-gray-400 font-mono">{getUptime()}</span></>
+                }
               </div>
             </div>
           </div>
