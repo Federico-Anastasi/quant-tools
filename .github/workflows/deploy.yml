@@ -43,12 +43,17 @@ jobs:
           #  2. recreate ONLY the app containers (--no-deps) — nginx/db/redis are left
           #     running, so the public site stays up (brief 502s while api recreates).
           # Recreating api/realtime/compute also reloads their volume-mounted code.
+          # The final `docker restart nginx` is required: recreating the app
+          # containers gives them new IPs on the docker network, and nginx (left
+          # running, not recreated) still holds the OLD upstream IPs -> 502s until it
+          # re-resolves. A plain restart re-resolves without the depends_on health gate.
           ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new \
               root@psiquant.xyz \
               'cd /opt/quant-tools && \
                git fetch origin && git reset --hard origin/main && \
                docker compose -f docker-compose.prod.yml build && \
-               docker compose -f docker-compose.prod.yml up -d --no-deps frontend api realtime compute'
+               docker compose -f docker-compose.prod.yml up -d --no-deps frontend api realtime compute && \
+               docker restart quant_tools_nginx'
 
       - name: Health check
         run: |
