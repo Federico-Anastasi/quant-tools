@@ -72,5 +72,9 @@ backtest/
 *.tmp
 *.bak
 
+# Server-side data dumps / backups (never commit — these are operational artifacts)
+backups/
+*_export.sql
+
 # Documentation (private)
 CLAUDE.md

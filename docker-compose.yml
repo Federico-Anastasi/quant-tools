@@ -22,7 +22,7 @@ services:
     environment:
       POSTGRES_DB: quant_tools
       POSTGRES_USER: quant_user
-      POSTGRES_PASSWORD: quant_password_2024
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-quant_password_2024}
       # CRITICAL: Increase max_connections for 4 containers (4×25=100)
       POSTGRES_INITDB_ARGS: "-c max_connections=200"
     command: postgres -c max_connections=200
@@ -37,6 +37,11 @@ services:
       resources:
         reservations:
           cpus: '1.0'
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U quant_user -d quant_tools"]
       interval: 10s
@@ -55,6 +60,11 @@ services:
       - quant_network
     ports:
       - "6379:6379"  # Expose for local testing
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -78,7 +88,7 @@ services:
     environment:
       ENV: development
       CONTAINER_MODE: api  # API-only mode (no background tasks)
-      DATABASE_URL: postgresql://quant_user:quant_password_2024@db:5432/quant_tools
+      DATABASE_URL: postgresql://quant_user:${POSTGRES_PASSWORD:-quant_password_2024}@db:5432/quant_tools
       REDIS_URL: redis://redis:6379/0
       FRONTEND_URL: http://localhost:8082
     volumes:
@@ -92,6 +102,11 @@ services:
         reservations:
           cpus: '1.0'
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -114,7 +129,7 @@ services:
         condition: service_healthy
     environment:
       ENV: development
-      DATABASE_URL: postgresql://quant_user:quant_password_2024@db:5432/quant_tools
+      DATABASE_URL: postgresql://quant_user:${POSTGRES_PASSWORD:-quant_password_2024}@db:5432/quant_tools
       REDIS_URL: redis://redis:6379/0
       WS_URL: wss://api.hyperliquid.xyz/ws
     volumes:
@@ -126,6 +141,20 @@ services:
         reservations:
           cpus: '1.0'
     command: python -m app.main_realtime
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    # realtime runs no HTTP server. The bot executor renews 'bot_executor_lock'
+    # every iteration (TTL 30s) → its presence is a direct liveness signal for the
+    # bot loop. redis-cli is NOT in the python image, so use python.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis,os,sys; r=redis.from_url(os.environ.get('REDIS_URL','redis://redis:6379/0')); sys.exit(0 if r.exists('bot_executor_lock') else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
   # ============================================================================
   # COMPUTE CONTAINER (1 CPU reserved)
@@ -143,7 +172,7 @@ services:
         condition: service_healthy
     environment:
       ENV: development
-      DATABASE_URL: postgresql://quant_user:quant_password_2024@db:5432/quant_tools
+      DATABASE_URL: postgresql://quant_user:${POSTGRES_PASSWORD:-quant_password_2024}@db:5432/quant_tools
       REDIS_URL: redis://redis:6379/0
     volumes:
       - ./backend:/app  # Hot-reload for development
@@ -154,6 +183,20 @@ services:
         reservations:
           cpus: '1.0'
     command: python -m app.main_compute
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    # compute runs no HTTP server. redis-cli is NOT in the python image, so use a
+    # python Redis ping (container up + Redis reachable); the supervisor restarts
+    # the zone/lob loops on failure.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis,os,sys; r=redis.from_url(os.environ.get('REDIS_URL','redis://redis:6379/0')); sys.exit(0 if r.ping() else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
   # ============================================================================
   # FRONTEND (no CPU limit)
@@ -171,6 +214,11 @@ services:
       - quant_network
     environment:
       VITE_API_URL: ""  # Same-origin via Nginx
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
 
   # ============================================================================
   # NGINX (no CPU limit)
@@ -190,6 +238,11 @@ services:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     networks:
       - quant_network
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/health"]
       interval: 30s

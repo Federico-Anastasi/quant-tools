@@ -1,0 +1,36 @@
+name: CI
+
+# Quality gate on every push to main and on PRs. Does NOT deploy.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend-syntax:
+    name: Backend syntax check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      # compileall catches syntax errors across the whole backend without
+      # needing the runtime dependencies installed.
+      - name: Compile all backend Python
+        run: python -m compileall -q backend/app
+
+  frontend-build:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm install --no-audit --no-fund
+      - name: Build
+        working-directory: frontend
+        run: npm run build

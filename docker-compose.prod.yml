@@ -10,7 +10,9 @@ services:
       POSTGRES_DB: quant_tools
       POSTGRES_USER: quant_user
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_MAX_CONNECTIONS: 200  # 4 containers × 25 max connections
+      # POSTGRES_MAX_CONNECTIONS env var is NOT honoured by the postgres image.
+      # Use the 'command:' key below to pass -c max_connections=200 at server start.
+    command: postgres -c max_connections=200
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./database/migrations:/docker-entrypoint-initdb.d
@@ -20,6 +22,11 @@ services:
       resources:
         reservations:
           cpus: '1.0'
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U quant_user -d quant_tools"]
       interval: 10s
@@ -36,6 +43,11 @@ services:
     command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
     networks:
       - quant_network
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -62,8 +74,12 @@ services:
       DATABASE_URL: postgresql://quant_user:${POSTGRES_PASSWORD}@db:5432/quant_tools
       REDIS_URL: redis://redis:6379/0
       FRONTEND_URL: ${FRONTEND_URL}
+    # FLAG: production still mounts ./backend:/app for hot-reload — this means
+    # source code is live-editable on the server without a rebuild, which is
+    # convenient but bypasses image immutability.  Consider removing this volume
+    # mount and rebuilding on deploy when the release process matures.
     volumes:
-      - ./backend:/app  # Hot-reload for production (no rebuild needed)
+      - ./backend:/app
     networks:
       - quant_network
     deploy:
@@ -71,6 +87,11 @@ services:
         reservations:
           cpus: '1.0'
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -107,6 +128,21 @@ services:
         reservations:
           cpus: '1.0'
     command: python -m app.main_realtime
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    # realtime runs no HTTP server. The bot executor renews the Redis lock
+    # 'bot_executor_lock' every iteration (TTL 30s), so its presence is a direct
+    # liveness signal for the bot loop — if the loop dies, the key expires and
+    # the container goes unhealthy. redis-cli is NOT in the python image, use python.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis,os,sys; r=redis.from_url(os.environ.get('REDIS_URL','redis://redis:6379/0')); sys.exit(0 if r.exists('bot_executor_lock') else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
   # ============================================================================
   # Compute Container (1 CPU reserved)
@@ -136,6 +172,20 @@ services:
         reservations:
           cpus: '1.0'
     command: python -m app.main_compute
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    # compute runs no HTTP server. redis-cli is NOT in the python image, use a
+    # python Redis ping (container up + Redis reachable). The supervisor restarts
+    # the zone/lob loops on failure, so container-level liveness is sufficient here.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis,os,sys; r=redis.from_url(os.environ.get('REDIS_URL','redis://redis:6379/0')); sys.exit(0 if r.ping() else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
   # ============================================================================
   # Frontend Container (React Production Build)
@@ -150,6 +200,11 @@ services:
     restart: unless-stopped
     networks:
       - quant_network
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
 
   # ============================================================================
   # Nginx Reverse Proxy (Unified access point)
@@ -172,6 +227,11 @@ services:
       - /var/www/certbot:/var/www/certbot:ro  # ACME challenge for renewal
     networks:
       - quant_network
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/health"]
       interval: 30s

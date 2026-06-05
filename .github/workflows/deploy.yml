@@ -1,0 +1,58 @@
+name: Deploy (PsiQuant prod)
+
+# Manual only. Deploys the current main to the production server
+# (psiquant.xyz). The server is a git checkout at /opt/quant-tools; the deploy
+# forces it to match origin/main, then rebuilds/recreates the stack.
+#
+# Required GitHub secret:
+#   PSIQUANT_SSH_KEY  — private SSH key authorized as root@psiquant.xyz
+on:
+  workflow_dispatch:
+
+jobs:
+  syntax-check:
+    name: Backend syntax gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile all backend Python
+        run: python -m compileall -q backend/app
+
+  deploy:
+    name: Deploy to production server
+    needs: syntax-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.PSIQUANT_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H psiquant.xyz >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Deploy via SSH
+        run: |
+          # reset --hard (not pull) so the server always converges to origin/main
+          # even if it carries local edits. Untracked files (backups, dumps) are
+          # preserved. up -d --build rebuilds the frontend image and recreates the
+          # api/realtime/compute containers so the mounted backend code reloads.
+          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new \
+              root@psiquant.xyz \
+              'cd /opt/quant-tools && git fetch origin && git reset --hard origin/main && docker compose -f docker-compose.prod.yml up -d --build'
+
+      - name: Health check
+        run: |
+          sleep 20
+          for i in 1 2 3 4 5 6; do
+            if curl -fsS --max-time 10 "https://psiquant.xyz/health" >/dev/null 2>&1; then
+              echo "Health check OK on attempt $i"
+              exit 0
+            fi
+            echo "Attempt $i failed, retrying in 10s..."
+            sleep 10
+          done
+          echo "Health check failed after 6 attempts"
+          exit 1
