@@ -92,11 +92,15 @@ services:
       options:
         max-size: "50m"
         max-file: "5"
+    # start_period gives the API room to come up under deploy-time CPU contention
+    # (realtime catch-up + compute LOB recalc + image builds) without being flapped
+    # to 'unhealthy', which would otherwise block nginx (depends_on: api healthy).
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
-      timeout: 10s
-      retries: 3
+      timeout: 15s
+      retries: 5
+      start_period: 60s
 
   # ============================================================================
   # Real-Time Container (1 CPU reserved) - SINGLETON

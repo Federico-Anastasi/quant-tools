@@ -18,13 +18,22 @@ Manual only (`workflow_dispatch`). Run it from the **Actions** tab → "Deploy (
    cd /opt/quant-tools
    git fetch origin
    git reset --hard origin/main          # converge to the pushed commit
-   docker compose -f docker-compose.prod.yml up -d --build
+   docker compose -f docker-compose.prod.yml build                 # build with OLD containers still serving
+   docker compose -f docker-compose.prod.yml up -d --no-deps frontend api realtime compute
    ```
    `reset --hard` (not `pull`) so the server always matches `origin/main` even if it
    carries stray local edits. Untracked files (`backups/`, `*_export.sql`) are kept.
-   `up -d --build` rebuilds the frontend image and recreates `api` / `realtime` /
-   `compute` so the volume-mounted backend code reloads.
+   **Two-phase, site-safe**: build first while old containers serve, then recreate only
+   the app containers with `--no-deps` so **nginx / db / redis are left running** — the
+   public site never goes down (only brief 502s while `api` recreates). Recreating
+   `api` / `realtime` / `compute` also reloads their volume-mounted backend code.
 3. `Health check`: polls `https://psiquant.xyz/health` until it returns 200.
+
+> Why not `up -d --build` (recreate everything)? nginx `depends_on: api (service_healthy)`.
+> During a deploy the api's healthcheck can briefly time out under CPU contention
+> (realtime catch-up + compute LOB recalc), get flapped to `unhealthy`, and then nginx
+> refuses to start → **site down**. The two-phase `--no-deps` recreate avoids touching
+> nginx; the api healthcheck also has a `start_period` to absorb the startup window.
 
 ## Required configuration
 

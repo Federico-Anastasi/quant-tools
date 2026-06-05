@@ -36,12 +36,19 @@ jobs:
       - name: Deploy via SSH
         run: |
           # reset --hard (not pull) so the server always converges to origin/main
-          # even if it carries local edits. Untracked files (backups, dumps) are
-          # preserved. up -d --build rebuilds the frontend image and recreates the
-          # api/realtime/compute containers so the mounted backend code reloads.
+          # even if it carries local edits. Untracked files (backups, dumps) are kept.
+          #
+          # Deploy in two phases so the site never goes down:
+          #  1. build all images while the OLD containers keep serving
+          #  2. recreate ONLY the app containers (--no-deps) — nginx/db/redis are left
+          #     running, so the public site stays up (brief 502s while api recreates).
+          # Recreating api/realtime/compute also reloads their volume-mounted code.
           ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new \
               root@psiquant.xyz \
-              'cd /opt/quant-tools && git fetch origin && git reset --hard origin/main && docker compose -f docker-compose.prod.yml up -d --build'
+              'cd /opt/quant-tools && \
+               git fetch origin && git reset --hard origin/main && \
+               docker compose -f docker-compose.prod.yml build && \
+               docker compose -f docker-compose.prod.yml up -d --no-deps frontend api realtime compute'
 
       - name: Health check
         run: |
