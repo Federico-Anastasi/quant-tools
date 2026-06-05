@@ -770,59 +770,58 @@ class DatabaseService:
 
     @staticmethod
     def get_bots_equity_bulk(bot_ids: List[int], from_time: Optional[datetime] = None,
-                            to_time: Optional[datetime] = None, limit_per_bot: int = 1000) -> Dict[int, List[Dict]]:
+                            to_time: Optional[datetime] = None, limit_per_bot: int = 1000,
+                            max_points: int = 2000) -> Dict[int, List[Dict]]:
         """
-        Get equity curves for multiple bots in ONE query (OPTIMIZED bulk fetch)
+        Get equity curves for multiple bots in ONE query, DOWNSAMPLED server-side.
 
-        Uses window function to apply LIMIT per bot efficiently
-        Returns: Dict mapping bot_id -> List[equity_snapshots]
+        An equity curve at 3-min resolution over months is ~90k points/bot — far more
+        than a chart can show. Decimating in SQL to <= max_points/bot keeps the FULL
+        time range (day-zero -> now) while bounding the payload (~MBs -> ~100s of KB)
+        and the JSON build, instead of shipping every row on a 5-second poll.
+
+        Decimation: keep every (total/max_points)-th row per bot, always including the
+        latest point so the curve ends at the current equity.
+
+        Returns: Dict mapping bot_id -> List[equity_snapshots] (chronological).
         """
         if not bot_ids:
             return {}
 
+        from sqlalchemy import text
+        sql = text("""
+            SELECT bot_id, timestamp, balance, equity, unrealized_pnl, open_positions
+            FROM (
+                SELECT bot_id, timestamp, balance, equity, unrealized_pnl, open_positions,
+                       row_number() OVER (PARTITION BY bot_id ORDER BY timestamp) AS rn,
+                       count(*)     OVER (PARTITION BY bot_id)                     AS total
+                FROM bot_equity_snapshots
+                WHERE bot_id = ANY(:bot_ids)
+                  AND (:from_time IS NULL OR timestamp >= :from_time)
+                  AND (:to_time   IS NULL OR timestamp <= :to_time)
+            ) s
+            WHERE (rn - 1) % GREATEST(total / :max_points, 1) = 0
+               OR rn = total
+            ORDER BY bot_id, timestamp
+        """)
+
         with DatabaseService.get_session() as session:
-            from sqlalchemy import func
+            rows = session.execute(sql, {
+                "bot_ids": list(bot_ids),
+                "from_time": from_time,
+                "to_time": to_time,
+                "max_points": max(1, max_points),
+            }).fetchall()
 
-            # Subquery with row_number to apply limit per bot (DESC to get LATEST snapshots)
-            subq = session.query(
-                BotEquitySnapshot.bot_id,
-                BotEquitySnapshot.timestamp,
-                BotEquitySnapshot.balance,
-                BotEquitySnapshot.equity,
-                BotEquitySnapshot.unrealized_pnl,
-                BotEquitySnapshot.open_positions,
-                func.row_number().over(
-                    partition_by=BotEquitySnapshot.bot_id,
-                    order_by=BotEquitySnapshot.timestamp.desc()
-                ).label('rn')
-            ).filter(
-                BotEquitySnapshot.bot_id.in_(bot_ids)
-            )
-
-            if from_time:
-                subq = subq.filter(BotEquitySnapshot.timestamp >= from_time)
-            if to_time:
-                subq = subq.filter(BotEquitySnapshot.timestamp <= to_time)
-
-            subq = subq.subquery()
-
-            # Filter to only first limit_per_bot rows per bot
-            results = session.query(subq).filter(subq.c.rn <= limit_per_bot).all()
-
-            # Group by bot_id
             equity_by_bot = {bot_id: [] for bot_id in bot_ids}
-            for row in results:
+            for row in rows:
                 equity_by_bot[row.bot_id].append({
                     "timestamp": to_utc_iso(row.timestamp),
                     "balance": float(row.balance),
                     "equity": float(row.equity),
                     "unrealized_pnl": float(row.unrealized_pnl),
-                    "open_positions": row.open_positions
+                    "open_positions": row.open_positions,
                 })
-
-            # Sort each bot's snapshots chronologically (oldest to newest) for chart display
-            for bot_id in equity_by_bot:
-                equity_by_bot[bot_id].sort(key=lambda x: x["timestamp"])
 
             return equity_by_bot
 

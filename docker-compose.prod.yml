@@ -86,7 +86,11 @@ services:
       resources:
         reservations:
           cpus: '1.0'
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
+    # 2 workers so a slow request (e.g. a heavy equity query) can't block the
+    # liveness probe on the other worker. Safe in api mode: CONTAINER_MODE=api runs
+    # NO background pipelines (those live in realtime/compute), so there is no
+    # singleton to duplicate across workers.
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
     logging:
       driver: json-file
       options:

@@ -243,11 +243,25 @@ async def health_check():
     db_healthy = check_db_health()
     collector_status = get_collector_status()
 
-    from app.database import DatabaseService, Trade, CVDCandle, Run
-    with DatabaseService.get_session() as session:
-        trades_count = session.query(Trade).count()
-        candles_count = session.query(CVDCandle).count()
-        runs_count = session.query(Run).count()
+    # A liveness probe runs every 30s and gates nginx — it MUST be cheap. Exact
+    # COUNT(*) on trades (~88M rows) takes seconds and flaps the healthcheck, so use
+    # the planner's row estimates from pg_class.reltuples (instant, kept fresh by
+    # autovacuum). Good enough for the UI's "system" panel.
+    from sqlalchemy import text
+    from app.database import DatabaseService
+    trades_count = candles_count = runs_count = None
+    if db_healthy:
+        try:
+            with DatabaseService.get_session() as session:
+                row = session.execute(text(
+                    "SELECT "
+                    "COALESCE((SELECT reltuples::bigint FROM pg_class WHERE relname='trades'), 0), "
+                    "COALESCE((SELECT reltuples::bigint FROM pg_class WHERE relname='cvd_candles'), 0), "
+                    "COALESCE((SELECT reltuples::bigint FROM pg_class WHERE relname='runs'), 0)"
+                )).first()
+                trades_count, candles_count, runs_count = int(row[0]), int(row[1]), int(row[2])
+        except Exception:
+            pass  # estimates are best-effort; never let them fail the health probe
 
     return HealthResponse(
         status="healthy" if db_healthy else "degraded",
