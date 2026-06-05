@@ -86,54 +86,36 @@ function BotsTab() {
     return () => clearInterval(interval);
   }, []);
 
-  // Fetch equity curves in parallel when bots change
+  // Fetch equity curves (bulk, downsampled server-side). Equity snapshots are
+  // created every 3 min, so polling every 30s is more than enough — the old 5s
+  // poll re-fetched the same data ~36x per change. An in-flight guard prevents
+  // overlapping requests piling up if the backend is momentarily slow.
+  // botsRef always reflects the latest bots state — no stale closure issue.
   useEffect(() => {
     if (botIds.length === 0) return;
 
-    // Bulk fetch function using single endpoint
+    let inFlight = false;
     const fetchAllEquityCurves = async () => {
+      if (inFlight) return;
+      const currentBotIds = botsRef.current.map(b => b.id);
+      if (currentBotIds.length === 0) return;
+      inFlight = true;
       try {
-        // Single bulk request instead of N individual requests
         const response = await axios.post(`${API_URL}/api/bots/equity-bulk`, {
-          bot_ids: botIds,
+          bot_ids: currentBotIds,
           from_time: null,
           to_time: null
-        }, {
-          params: { limit: 10000 }
         });
-
-        // Single setState - 1 render
         setEquityCurves(prev => ({ ...prev, ...response.data.data }));
-
       } catch (err) {
         console.error('[BotsTab] Error fetching bulk equity curves:', err);
+      } finally {
+        inFlight = false;
       }
     };
 
-    // Initial fetch
     fetchAllEquityCurves();
-
-    // Refresh equity every 5 seconds (same as snapshots creation interval)
-    // botsRef always reflects the latest bots state — no stale closure issue.
-    const interval = setInterval(() => {
-      const currentBotIds = botsRef.current.map(b => b.id);
-      if (currentBotIds.length === 0) return;
-
-      axios.post(`${API_URL}/api/bots/equity-bulk`, {
-        bot_ids: currentBotIds,
-        from_time: null,
-        to_time: null
-      }, {
-        params: { limit: 10000 }
-      })
-        .then(response => {
-          setEquityCurves(prev => ({ ...prev, ...response.data.data }));
-        })
-        .catch(err => {
-          console.error('[BotsTab] Error fetching bulk equity in interval:', err);
-        });
-    }, 5000);
-
+    const interval = setInterval(fetchAllEquityCurves, 30000);
     return () => clearInterval(interval);
   }, [botIdsString]);  // Use stable string instead of array reference
 
