@@ -52,14 +52,17 @@ jobs:
 
       - name: Health check
         run: |
-          sleep 20
-          for i in 1 2 3 4 5 6; do
+          # nginx stays up throughout the deploy, but the recreated api can take a few
+          # minutes to pass /health under CPU contention (realtime catch-up + compute
+          # LOB recalc over ~1M runs). Poll patiently (~4 min) before failing.
+          sleep 30
+          for i in $(seq 1 20); do
             if curl -fsS --max-time 10 "https://psiquant.xyz/health" >/dev/null 2>&1; then
               echo "Health check OK on attempt $i"
               exit 0
             fi
-            echo "Attempt $i failed, retrying in 10s..."
-            sleep 10
+            echo "Attempt $i failed, retrying in 12s..."
+            sleep 12
           done
-          echo "Health check failed after 6 attempts"
+          echo "Health check failed after 20 attempts (~4 min)"
           exit 1
