@@ -1,11 +1,13 @@
 name: Deploy (PsiQuant prod)
 
 # Manual only. Deploys the current main to the production server
-# (psiquant.xyz). The server is a git checkout at /opt/quant-tools; the deploy
+# (psiquant.xyz). The server holds a git checkout of this repo; the deploy
 # forces it to match origin/main, then rebuilds/recreates the stack.
 #
-# Required GitHub secret:
-#   PSIQUANT_SSH_KEY  — private SSH key authorized as root@psiquant.xyz
+# Required GitHub configuration:
+#   secret   PSIQUANT_SSH_KEY     — private SSH key authorized on the server
+#   variable PSIQUANT_SSH_TARGET  — user@host of the server
+#   variable PSIQUANT_DEPLOY_PATH — path of the checkout on the server
 on:
   workflow_dispatch:
 
@@ -31,7 +33,6 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.PSIQUANT_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H psiquant.xyz >> ~/.ssh/known_hosts 2>/dev/null || true
 
       - name: Deploy via SSH
         run: |
@@ -48,8 +49,8 @@ jobs:
           # running, not recreated) still holds the OLD upstream IPs -> 502s until it
           # re-resolves. A plain restart re-resolves without the depends_on health gate.
           ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new \
-              root@psiquant.xyz \
-              'cd /opt/quant-tools && \
+              "${{ vars.PSIQUANT_SSH_TARGET }}" \
+              'cd "${{ vars.PSIQUANT_DEPLOY_PATH }}" && \
                git fetch origin && git reset --hard origin/main && \
                docker compose -f docker-compose.prod.yml build && \
                docker compose -f docker-compose.prod.yml up -d --no-deps frontend api realtime compute && \

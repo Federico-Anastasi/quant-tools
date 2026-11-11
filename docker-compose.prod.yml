@@ -3,7 +3,9 @@ services:
   # Database Container (1 CPU reserved)
   # ============================================================================
   db:
-    image: timescale/timescaledb:latest-pg15
+    # Pinned: the data directory is tied to this TimescaleDB version. Bump it
+    # deliberately, together with ALTER EXTENSION timescaledb UPDATE.
+    image: timescale/timescaledb:2.23.1-pg15
     container_name: quant_tools_db
     restart: unless-stopped
     environment:
@@ -175,10 +177,14 @@ services:
       - ./backend:/app  # Hot-reload for production (no rebuild needed)
     networks:
       - quant_network
+    # The server is shared with other projects: cap compute so a runaway
+    # recalculation gets restarted instead of starving its neighbours.
     deploy:
       resources:
         reservations:
           cpus: '1.0'
+        limits:
+          memory: 4G
     command: python -m app.main_compute
     logging:
       driver: json-file
@@ -216,6 +222,8 @@ services:
 
   # ============================================================================
   # Nginx Reverse Proxy (Unified access point)
+  # No published ports: the server's shared Caddy proxy terminates TLS and
+  # forwards psiquant.xyz to this container over the shared-proxy network.
   # ============================================================================
   nginx:
     image: nginx:alpine
@@ -226,15 +234,11 @@ services:
         condition: service_healthy
       frontend:
         condition: service_started
-    ports:
-      - "80:80"
-      - "443:443"
     volumes:
       - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
-      - /etc/letsencrypt:/etc/letsencrypt:ro  # SSL certificates from Certbot
-      - /var/www/certbot:/var/www/certbot:ro  # ACME challenge for renewal
     networks:
       - quant_network
+      - shared-proxy
     logging:
       driver: json-file
       options:
@@ -252,6 +256,8 @@ services:
 networks:
   quant_network:
     name: quant_network
+  shared-proxy:
+    external: true
 
 # ==============================================================================
 # Volumes

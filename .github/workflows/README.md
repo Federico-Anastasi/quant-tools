@@ -13,9 +13,9 @@ Runs automatically on every push to `main` and on pull requests. Does **not** de
 ### `deploy.yml` — Production deploy
 Manual only (`workflow_dispatch`). Run it from the **Actions** tab → "Deploy (PsiQuant prod)" → Run workflow → `main`.
 1. `syntax-check`: backend `compileall` gate (deploy is blocked if it fails).
-2. `deploy`: SSH to `root@psiquant.xyz`, then on the server:
+2. `deploy`: SSH to the server, then:
    ```
-   cd /opt/quant-tools
+   cd "$PSIQUANT_DEPLOY_PATH"
    git fetch origin
    git reset --hard origin/main          # converge to the pushed commit
    docker compose -f docker-compose.prod.yml build                 # build with OLD containers still serving
@@ -42,16 +42,18 @@ Manual only (`workflow_dispatch`). Run it from the **Actions** tab → "Deploy (
 
 | Type | Name | Value |
 |------|------|-------|
-| Secret | `PSIQUANT_SSH_KEY` | Private SSH key authorized as `root@psiquant.xyz` |
+| Secret | `PSIQUANT_SSH_KEY` | Private SSH key authorized on the server |
+| Variable | `PSIQUANT_SSH_TARGET` | `user@host` of the server |
+| Variable | `PSIQUANT_DEPLOY_PATH` | Path of the git checkout on the server |
 
-Set it once: `gh secret set PSIQUANT_SSH_KEY < ~/.ssh/psiquant_ed25519` (or via repo Settings → Secrets).
+Set them once: `gh secret set PSIQUANT_SSH_KEY < ~/.ssh/psiquant_ed25519` and `gh variable set <NAME> --body <value>` (or via repo Settings → Secrets and variables).
 
 ## Server facts
 
 | | |
 |--|--|
-| Host | `psiquant.xyz` (root) |
-| Path | `/opt/quant-tools` (git checkout of this repo) |
+| Host | `psiquant.xyz`, on a server shared with other projects |
+| TLS | Terminated by the server's shared Caddy proxy (automatic certificates); `quant_tools_nginx` publishes no ports |
 | Compose | `docker-compose.prod.yml` |
 | Containers | `quant_tools_{db,redis,api,realtime,compute,frontend,nginx}` |
 

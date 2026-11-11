@@ -38,8 +38,8 @@ PsiQuant provides professional-grade order flow analysis tools for cryptocurrenc
 
 **Infrastructure:**
 - Docker + Docker Compose
-- Nginx (reverse proxy + SSL)
-- Let's Encrypt (SSL certificates)
+- Nginx (reverse proxy, rate limiting)
+- Caddy (TLS termination, automatic certificates)
 
 ---
 
@@ -113,7 +113,7 @@ GET /health
 
 ```
 ┌─────────────┐
-│   Nginx     │  ← Reverse proxy + SSL termination
+│   Nginx     │  ← Reverse proxy (TLS terminated upstream by Caddy)
 └──────┬──────┘
        │
    ┌───┴────┐
@@ -135,7 +135,7 @@ GET /health
 - `redis` - Cache and pub/sub message broker
 - `api` - FastAPI backend with WebSocket collectors
 - `frontend` - React application (static build)
-- `nginx` - Reverse proxy with SSL
+- `nginx` - Reverse proxy (TLS is terminated upstream by Caddy)
 
 ---
 
