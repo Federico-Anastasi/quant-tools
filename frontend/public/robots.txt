@@ -27,4 +27,4 @@ User-agent: cohere-ai
 Allow: /
 
 # Sitemap location
-Sitemap: https://psiquant.xyz/sitemap.xml
+Sitemap: https://psiquant.mango-dev.space/sitemap.xml

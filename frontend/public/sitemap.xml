@@ -7,7 +7,7 @@
 
   <!-- Homepage -->
   <url>
-    <loc>https://psiquant.xyz/</loc>
+    <loc>https://psiquant.mango-dev.space/</loc>
     <lastmod>2024-01-28</lastmod>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
@@ -16,7 +16,7 @@
   <!-- Add more pages as you create them -->
   <!-- Example:
   <url>
-    <loc>https://psiquant.xyz/about</loc>
+    <loc>https://psiquant.mango-dev.space/about</loc>
     <lastmod>2024-01-28</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>

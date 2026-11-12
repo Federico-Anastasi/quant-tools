@@ -2,7 +2,7 @@
 
 Open-source market microstructure tools for crypto traders. Real-time CVD tracking, liquidity heatmaps, and trading insights.
 
-🌐 **[Live Demo](https://psiquant.xyz)** | 📊 **Free Research Platform**
+🌐 **[Live Demo](https://psiquant.mango-dev.space)** | 📊 **Free Research Platform**
 
 ---
 
@@ -298,7 +298,7 @@ This project is provided as-is for research and educational purposes. No guarant
 
 ## Contact & Community
 
-- **Live Platform**: [psiquant.xyz](https://psiquant.xyz)
+- **Live Platform**: [psiquant.mango-dev.space](https://psiquant.mango-dev.space)
 - **GitHub**: [@Federico-Anastasi](https://github.com/Federico-Anastasi)
 - **Twitter/X**: [@FedeAnastasi](https://twitter.com/FedeAnastasi)
 

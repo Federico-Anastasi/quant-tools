@@ -1,7 +1,7 @@
 name: Deploy (PsiQuant prod)
 
 # Manual only. Deploys the current main to the production server
-# (psiquant.xyz). The server holds a git checkout of this repo; the deploy
+# (psiquant.mango-dev.space). The server holds a git checkout of this repo; the deploy
 # forces it to match origin/main, then rebuilds/recreates the stack.
 #
 # Required GitHub configuration:
@@ -63,7 +63,7 @@ jobs:
           # LOB recalc over ~1M runs). Poll patiently (~4 min) before failing.
           sleep 30
           for i in $(seq 1 20); do
-            if curl -fsS --max-time 10 "https://psiquant.xyz/health" >/dev/null 2>&1; then
+            if curl -fsS --max-time 10 "https://psiquant.mango-dev.space/health" >/dev/null 2>&1; then
               echo "Health check OK on attempt $i"
               exit 0
             fi

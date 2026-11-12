@@ -30,7 +30,7 @@ Manual only (`workflow_dispatch`). Run it from the **Actions** tab → "Deploy (
    their volume-mounted backend code. The final `docker restart quant_tools_nginx`
    re-resolves the recreated containers' **new docker-network IPs** (otherwise nginx
    keeps proxying to the dead old IPs → 502); a plain restart skips the health gate.
-3. `Health check`: polls `https://psiquant.xyz/health` until it returns 200.
+3. `Health check`: polls `https://psiquant.mango-dev.space/health` until it returns 200.
 
 > Why not `up -d --build` (recreate everything)? nginx `depends_on: api (service_healthy)`.
 > During a deploy the api's healthcheck can briefly time out under CPU contention
@@ -52,7 +52,7 @@ Set them once: `gh secret set PSIQUANT_SSH_KEY < ~/.ssh/psiquant_ed25519` and `g
 
 | | |
 |--|--|
-| Host | `psiquant.xyz`, on a server shared with other projects |
+| Host | `psiquant.mango-dev.space`, on a server shared with other projects |
 | TLS | Terminated by the server's shared Caddy proxy (automatic certificates); `quant_tools_nginx` publishes no ports |
 | Compose | `docker-compose.prod.yml` |
 | Containers | `quant_tools_{db,redis,api,realtime,compute,frontend,nginx}` |

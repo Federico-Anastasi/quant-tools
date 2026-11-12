@@ -223,7 +223,7 @@ services:
   # ============================================================================
   # Nginx Reverse Proxy (Unified access point)
   # No published ports: the server's shared Caddy proxy terminates TLS and
-  # forwards psiquant.xyz to this container over the shared-proxy network.
+  # forwards psiquant.mango-dev.space to this container over the shared-proxy network.
   # ============================================================================
   nginx:
     image: nginx:alpine

@@ -2,7 +2,7 @@
   "platform": {
     "name": "PsiQuant",
     "tagline": "Order Flow Analytics",
-    "url": "https://psiquant.xyz",
+    "url": "https://psiquant.mango-dev.space",
     "description": "Experimental cryptocurrency market microstructure research platform specializing in real-time order flow analysis, Cumulative Volume Delta (CVD) tracking, and liquidity density visualization for Hyperliquid markets.",
     "category": "Financial Technology / Trading Analytics",
     "target_audience": [
